@@ -1,45 +1,57 @@
-import { Tabs } from 'expo-router';
-import React from 'react';
-import { ThemedText } from '@/components/themed-text';
-import { HapticTab } from '@/components/haptic-tab';
-// Đã loại bỏ IconSymbol, thay bằng Emoji trong title
-import { Colors } from '@/constants/theme';
-import { useColorScheme } from '@/hooks/use-color-scheme';
+// app/(tabs)/_layout.tsx (Code an toàn, không có hooks context)
+
+import { Tabs } from "expo-router";
+import { Feather } from "@expo/vector-icons";
+import React from "react";
 
 export default function TabLayout() {
-  const colorScheme = useColorScheme();
-
   return (
     <Tabs
       screenOptions={{
-        tabBarActiveTintColor: Colors[colorScheme ?? 'light'].tint,
-        headerShown: false,
-        // tabBarButton: HapticTab, // Tùy chọn, có thể bỏ comment nếu HapticTab có lỗi
-      }}>
+        tabBarActiveTintColor: "#059669",
+        headerShown: false, // Ẩn tiêu đề Stack
+      }}
+    >
+      {/* Home */}
       <Tabs.Screen
-        name="index"
+        name="index" // Nếu file của bạn là index.tsx
         options={{
-          title: 'Home ',
-          tabBarIcon: ({ color, size }) => <ThemedText style={{ fontSize: size, color }}>🏠</ThemedText>,
+          title: "Trang chủ",
+          tabBarIcon: ({ color }) => (
+            <Feather name="home" color={color} size={24} />
+          ),
         }}
       />
-      
-
       <Tabs.Screen
-        name="orders"
+        name="menu"
         options={{
-          title: 'Đơn Hàng ',
-          tabBarIcon: ({ color, size }) => <ThemedText style={{ fontSize: size, color }}>🧾</ThemedText>,
+          title: "Thực đơn",
+          tabBarIcon: ({ color }) => (
+            <Feather name="shopping-bag" color={color} size={24} />
+          ),
         }}
       />
-   <Tabs.Screen
-        name="profile"
+      {/* Orders */}
+      <Tabs.Screen
+        name="orders" // Nếu file của bạn là orders.tsx
         options={{
-          title: 'Tôi 👤',
-          tabBarIcon: ({ color, size }) => <ThemedText style={{ fontSize: size, color }}>👤</ThemedText>,
+          title: "Đơn hàng",
+          tabBarIcon: ({ color }) => (
+            <Feather name="file-text" color={color} size={24} />
+          ),
         }}
       />
-     
+      {/* Profile */}
+      <Tabs.Screen
+        name="profile" // Nếu file của bạn là profile.tsx
+        options={{
+          title: "Tài khoản",
+          tabBarIcon: ({ color }) => (
+            <Feather name="user" color={color} size={24} />
+          ),
+        }}
+      />
+      {/* Thêm các Tabs.Screen khác nếu cần */}
     </Tabs>
   );
 }
