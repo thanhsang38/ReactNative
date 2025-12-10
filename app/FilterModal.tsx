@@ -1,16 +1,16 @@
+import { Feather } from "@expo/vector-icons";
+import Slider from "@react-native-community/slider";
+import { LinearGradient } from "expo-linear-gradient";
 import React, { useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
+  Dimensions,
   Modal,
   ScrollView,
-  Dimensions,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Feather, Ionicons } from "@expo/vector-icons";
-import { LinearGradient } from "expo-linear-gradient";
-import Slider from "@react-native-community/slider";
 
 // --- Interfaces và Constants ---
 const { width } = Dimensions.get("window");
@@ -29,10 +29,10 @@ interface FilterModalProps {
   currentFilters: FilterOptions;
 }
 
-const RATING_OPTIONS = [4.5, 4.0, 3.5];
+// ❌ ĐÃ XÓA RATING_OPTIONS
+
 const SORT_OPTIONS = [
   { id: "popular", label: "Phổ biến nhất" },
-  { id: "rating", label: "Đánh giá cao nhất" },
   { id: "price-low", label: "Giá thấp nhất" },
   { id: "price-high", label: "Giá cao nhất" },
 ];
@@ -66,33 +66,32 @@ export function FilterModal({
 }: FilterModalProps) {
   const [tempPriceRange, setTempPriceRange] = useState(
     currentFilters.priceRange
-  );
-  const [tempRating, setTempRating] = useState(currentFilters.rating);
-  const [tempSortBy, setTempSortBy] = useState(currentFilters.sortBy);
+  ); // ❌ ĐÃ XÓA state tempRating
+  const [tempSortBy, setTempSortBy] = useState(currentFilters.sortBy); // 💡 Đồng bộ hóa state tạm thời khi modal mở/đóng
 
-  // 💡 Đồng bộ hóa state tạm thời khi modal mở/đóng
   React.useEffect(() => {
-    setTempPriceRange(currentFilters.priceRange);
-    setTempRating(currentFilters.rating);
+    setTempPriceRange(currentFilters.priceRange); // ❌ ĐÃ XÓA setTempRating
     setTempSortBy(currentFilters.sortBy);
   }, [isOpen]);
 
   const handleClearFilters = () => {
-    setTempPriceRange([MIN_PRICE, MAX_PRICE]);
-    setTempRating(null);
-    setTempSortBy("popular");
+    onApply({
+      priceRange: [MIN_PRICE, MAX_PRICE],
+      rating: null, // Giữ lại giá trị null cho rating
+      sortBy: "popular",
+    });
+    onClose();
   };
 
   const handleApply = () => {
     onApply({
       priceRange: tempPriceRange,
-      rating: tempRating,
+      rating: currentFilters.rating, // Giữ nguyên rating hiện tại (hoặc set null nếu bạn muốn xóa)
       sortBy: tempSortBy,
     });
     onClose();
-  };
+  }; // Logic hiển thị giá trị slider (chỉ lấy giá trị cao nhất cho slider đơn)
 
-  // Logic hiển thị giá trị slider (chỉ lấy giá trị cao nhất cho slider đơn)
   const displayPrice = tempPriceRange[1].toLocaleString("vi-VN");
 
   return (
@@ -111,22 +110,23 @@ export function FilterModal({
               <Feather name="x" size={24} color={COLORS.slate700} />
             </TouchableOpacity>
           </View>
-
           <ScrollView contentContainerStyle={styles.scrollContent}>
             {/* Price Range */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Phạm vi giá</Text>
               <View style={styles.priceRangeDisplay}>
-                <Text style={styles.priceRangeText}>Dưới {displayPrice}đ</Text>
+                <Text style={styles.priceRangeText}>
+                  {tempPriceRange[0].toLocaleString("vi-VN")}đ - Dưới
+                  {displayPrice}đ
+                </Text>
               </View>
-
-              {/* ⚠️ CHÚ Ý: Cần Slider hỗ trợ Single Value/Range. Dùng Slider đơn giản cho RN */}
+              {/* ⚠️ CHÚ Ý: Sử dụng Slider đơn giản cho RN */}
               <Slider
                 style={styles.slider}
                 minimumValue={MIN_PRICE}
                 maximumValue={MAX_PRICE}
                 step={10000}
-                value={tempPriceRange[1]} // Dùng giá trị MAX để mô phỏng 'dưới'
+                value={tempPriceRange[1]}
                 onValueChange={(value) => setTempPriceRange([MIN_PRICE, value])}
                 minimumTrackTintColor={COLORS.emerald500}
                 maximumTrackTintColor={COLORS.slate200}
@@ -137,46 +137,11 @@ export function FilterModal({
                   {MIN_PRICE.toLocaleString()}đ
                 </Text>
                 <Text style={styles.rangeLabelText}>
-                  Trên {MAX_PRICE.toLocaleString()}đ
+                  {MAX_PRICE.toLocaleString()}đ
                 </Text>
               </View>
             </View>
 
-            {/* Rating Filter */}
-            <View style={styles.section}>
-              <Text style={styles.sectionTitle}>Đánh giá tối thiểu</Text>
-              <View style={styles.ratingGrid}>
-                {RATING_OPTIONS.map((rating) => {
-                  const isActive = tempRating === rating;
-                  return (
-                    <TouchableOpacity
-                      key={rating}
-                      onPress={() => setTempRating(isActive ? null : rating)}
-                      style={[
-                        styles.ratingButton,
-                        isActive && styles.ratingButtonActive,
-                      ]}
-                    >
-                      <Ionicons
-                        name="star"
-                        size={16}
-                        color={isActive ? COLORS.white : COLORS.amber400}
-                      />
-                      <Text
-                        style={[
-                          styles.ratingText,
-                          { color: isActive ? COLORS.white : COLORS.slate700 },
-                        ]}
-                      >
-                        {rating}+
-                      </Text>
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
-            </View>
-
-            {/* Sort By */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Sắp xếp theo</Text>
               <View style={styles.sortOptionsList}>
@@ -203,11 +168,9 @@ export function FilterModal({
                 })}
               </View>
             </View>
-
             <View style={{ height: 20 }} />
           </ScrollView>
 
-          {/* Bottom Action Bar */}
           <View style={styles.actionBar}>
             <TouchableOpacity
               onPress={handleClearFilters}
@@ -285,8 +248,7 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     color: COLORS.slate800,
     marginBottom: 12,
-  },
-  // --- Price Range ---
+  }, // --- Price Range ---
   priceRangeDisplay: {
     alignItems: "center",
     marginBottom: 8,
@@ -308,8 +270,7 @@ const styles = StyleSheet.create({
   rangeLabelText: {
     fontSize: 12,
     color: COLORS.slate600,
-  },
-  // --- Rating Filter ---
+  }, // --- Rating Filter ---
   ratingGrid: {
     flexDirection: "row",
     justifyContent: "space-between",
@@ -336,8 +297,7 @@ const styles = StyleSheet.create({
   },
   ratingText: {
     fontSize: 14,
-  },
-  // --- Sort By ---
+  }, // --- Sort By ---
   sortOptionsList: {
     gap: 8,
   },
@@ -362,8 +322,7 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     alignItems: "center",
     justifyContent: "center",
-  },
-  // --- Action Bar ---
+  }, // --- Action Bar ---
   actionBar: {
     flexDirection: "row",
     padding: 16,

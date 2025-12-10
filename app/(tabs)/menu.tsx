@@ -1,121 +1,100 @@
-import React, { useState, ComponentProps } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  FlatList,
-  Dimensions,
-  Image,
-  Platform,
-} from "react-native";
+import { Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Feather, Ionicons, AntDesign } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router"; // 💡 IMPORT ROUTER
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Dimensions,
+  FlatList,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { FilterModal } from "../FilterModal"; // 💡 IMPORT MODAL LỌC
 
 // --- Imports Logic Context ---
-import { useAuth } from "../../context/AuthContext";
-import { useCart, CartItem } from "../../context/CartContext"; // 💡 Import CartItem type
+import Toast from "react-native-toast-message";
 import { Header } from "../../components/Header"; // 💡 Component Header thực tế
+import { CartItem, useCart } from "../../context/CartContext"; // 💡 Import CartItem type
+import {
+  CategoryRow,
+  getCategories,
+  getProducts,
+  ProductRow,
+} from "../services/baserowApi";
 // --------------------------------------------------
 
-type AntDesignName = ComponentProps<typeof AntDesign>["name"];
 type Page = string;
 interface FilterOptions {
   priceRange: number[];
   rating: number | null;
   sortBy: "popular" | "price-low" | "price-high" | "rating";
 }
-interface Product {
-  id: string;
-  name: string;
-  price: number;
-  rating: number;
-  soldCount: number;
-  image: string;
-  popular: boolean;
-  category: string;
-  description: string;
-}
-interface Category {
-  id: string;
-  name: string;
-  icon: string;
-}
+const PaginationControls = ({
+  currentPage,
+  totalPages,
+  goToPrev,
+  goToNext,
+  isLoading,
+}: {
+  currentPage: number;
+  totalPages: number;
+  goToPrev: () => void;
+  goToNext: () => void;
+  isLoading: boolean;
+}) => {
+  const isPrevDisabled = currentPage === 1 || isLoading;
+  const isNextDisabled =
+    currentPage === totalPages || totalPages === 0 || isLoading;
 
-// --- Dữ liệu Mock ---
-const categories: Category[] = [
-  { id: "all", name: "Tất cả", icon: "✨" },
-  { id: "ts", name: "Trà sữa", icon: "🧋" },
-  { id: "cf", name: "Cà phê", icon: "☕" },
-  { id: "tc", name: "Trái cây", icon: "🍹" },
-  { id: "st", name: "Sinh tố", icon: "🥤" },
-];
-const products: Product[] = [
-  {
-    id: "p1",
-    name: "Trà Sữa Trân Châu Hoàng Gia",
-    price: 55000,
-    rating: 4.8,
-    soldCount: 300,
-    image: "https://images.unsplash.com/photo-1670468642364-6cacadfb7bb0?w=400",
-    popular: true,
-    category: "ts",
-    description: "Trà sữa thơm béo, trân châu dai ngon.",
-  },
-  {
-    id: "p2",
-    name: "Cà Phê Muối",
-    price: 40000,
-    rating: 4.9,
-    soldCount: 250,
-    image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=400",
-    popular: true,
-    category: "cf",
-    description: "Vị mặn độc đáo của lớp kem muối.",
-  },
-  {
-    id: "p3",
-    name: "Trà Dâu Tươi",
-    price: 60000,
-    rating: 4.5,
-    soldCount: 180,
-    image: "https://images.unsplash.com/photo-1645467148762-6d7fd24d7acf?w=400",
-    popular: false,
-    category: "tc",
-    description: "Dâu tươi mát lạnh, giải nhiệt mùa hè.",
-  },
-  {
-    id: "p4",
-    name: "Sữa Tươi Trân Châu Đường Đen",
-    price: 50000,
-    rating: 4.7,
-    soldCount: 220,
-    image: "https://via.placeholder.com/150/f0f9ff",
-    popular: false,
-    category: "ts",
-    description: "Sữa tươi thanh mát, đường đen ngọt nhẹ.",
-  },
-  {
-    id: "p5",
-    name: "Sinh Tố Bơ",
-    price: 65000,
-    rating: 4.9,
-    soldCount: 150,
-    image: "https://images.unsplash.com/photo-1625480499375-27220a672237?w=400",
-    popular: true,
-    category: "st",
-    description: "Sinh tố bơ sánh mịn, mát lạnh.",
-  },
-];
+  return (
+    <View style={paginationStyles.container}>
+      <TouchableOpacity
+        onPress={goToPrev}
+        style={[
+          paginationStyles.button,
+          isPrevDisabled && paginationStyles.buttonDisabled,
+        ]}
+        disabled={isPrevDisabled}
+      >
+        <Feather
+          name="chevron-left"
+          size={24}
+          color={isPrevDisabled ? COLORS.slate400 : COLORS.white}
+        />
+      </TouchableOpacity>
 
+      <View style={paginationStyles.info}>
+        <Text style={paginationStyles.pageText}>
+          <Text style={paginationStyles.currentPageText}>{currentPage}</Text>
+          <Text style={paginationStyles.totalPageText}> / {totalPages}</Text>
+        </Text>
+      </View>
+
+      <TouchableOpacity
+        onPress={goToNext}
+        style={[
+          paginationStyles.button,
+          isNextDisabled && paginationStyles.buttonDisabled,
+        ]}
+        disabled={isNextDisabled}
+      >
+        <Feather
+          name="chevron-right"
+          size={24}
+          color={isNextDisabled ? COLORS.slate400 : COLORS.white}
+        />
+      </TouchableOpacity>
+    </View>
+  );
+};
 const { width } = Dimensions.get("window");
 const ITEM_WIDTH = (width - 48) / 2;
-
+const ITEMS_PER_PAGE = 8;
 const COLORS = {
   bg: "#f8fafc",
   white: "#ffffff",
@@ -127,6 +106,7 @@ const COLORS = {
   slate800: "#1e293b",
   emerald400: "#34d399",
   emerald500: "#10b981",
+  emerald600: "#059669",
   teal600: "#0d9488",
   red500: "#ef4444",
   amber400: "#fbbf24",
@@ -144,6 +124,13 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   const insets = useSafeAreaInsets();
   const headerHeight = 50 + insets.top;
   const [showFilterModal, setShowFilterModal] = useState(false); // 💡 STATE MODAL
+
+  const [currentPage, setCurrentPage] = useState(1);
+
+  const [allProducts, setAllProducts] = useState<ProductRow[]>([]);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
   const [filters, setFilters] = useState<FilterOptions>({
     // 💡 STATE FILTERS
     priceRange: [0, 1000000],
@@ -152,26 +139,133 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   });
   const { addToCart } = useCart();
 
-  const filteredProducts = products.filter((product) => {
-    const matchesCategory =
-      selectedCategory === "all" || product.category === selectedCategory;
-    const matchesSearch = product.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    return matchesCategory && matchesSearch;
-  });
+  const fetchAllData = async () => {
+    setIsLoading(true);
+    setError(null);
+    try {
+      // Fetch Products (Tải toàn bộ)
+      const productResult = await getProducts(); // KHÔNG DÙNG PAGE/LIMIT Ở ĐÂY
+      if (productResult.success && productResult.data) {
+        setAllProducts(productResult.data); // Lưu toàn bộ data
+      } else {
+        setAllProducts([]);
+        setError(productResult.message || "Không thể tải dữ liệu sản phẩm.");
+        Toast.show({
+          type: "error",
+          text1: "Lỗi API",
+          text2: productResult.message || "Kiểm tra ID bảng sản phẩm.",
+          visibilityTime: 4000,
+        });
+      }
 
-  const toggleFavorite = (productId: string) => {
+      // Fetch Categories (chỉ cần fetch 1 lần)
+      const categoryResult = await getCategories();
+      if (categoryResult.success && categoryResult.data) {
+        setCategories(categoryResult.data);
+      } else {
+        console.error("Lỗi tải danh mục:", categoryResult.message);
+      }
+    } catch (e: any) {
+      setError(e.message);
+      Toast.show({
+        type: "error",
+        text1: "Lỗi hệ thống",
+        text2: e.message,
+        visibilityTime: 4000,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAllData();
+  }, []);
+  const processedProducts = useMemo(() => {
+    let filtered = allProducts;
+
+    // 1. Lọc theo DANH MỤC ĐÃ CHỌN
+    if (selectedCategory !== "all") {
+      filtered = filtered.filter(
+        (product) => product.category === selectedCategory
+      );
+    }
+
+    // 2. Lọc theo TÌM KIẾM
+    if (searchQuery) {
+      const searchLower = searchQuery.toLowerCase();
+      filtered = filtered.filter((product) =>
+        product.name.toLowerCase().includes(searchLower)
+      );
+    }
+
+    // 3. Lọc theo GIÁ & RATING (Tương tự logic FilterModal)
+    filtered = filtered.filter((product) => {
+      const matchesPrice =
+        product.price >= filters.priceRange[0] &&
+        product.price <= filters.priceRange[1];
+      // const matchesRating = !filters.rating || product.rating >= filters.rating;
+      return matchesPrice;
+    });
+
+    // 4. Sắp xếp
+    return [...filtered].sort((a, b) => {
+      switch (filters.sortBy) {
+        case "price-low":
+          return a.price - b.price;
+        case "price-high":
+          return b.price - a.price;
+        // case "rating":
+        //   return b.rating - a.rating;
+        // case "popular":
+        //   return (b as any).soldCount - (a as any).soldCount;
+        default:
+          return 0;
+      }
+    });
+  }, [allProducts, selectedCategory, searchQuery, filters]);
+
+  const totalProductsFiltered = processedProducts.length;
+  const totalPages = Math.ceil(totalProductsFiltered / ITEMS_PER_PAGE);
+
+  const toggleFavorite = (productId: number) => {
     setFavorites((prev) =>
-      prev.includes(productId)
-        ? prev.filter((id) => id !== productId)
-        : [...prev, productId]
+      prev.includes(productId.toString()) // Chuyển sang string để so sánh
+        ? prev.filter((id) => id !== productId.toString())
+        : [...prev, productId.toString()]
     );
   };
 
-  const onAddToCart = (product: Product) => {
+  const displayedProducts = processedProducts.slice(
+    (currentPage - 1) * ITEMS_PER_PAGE,
+    currentPage * ITEMS_PER_PAGE
+  );
+
+  const goToNextPage = () => {
+    if (currentPage < totalPages) {
+      setCurrentPage(currentPage + 1);
+    }
+  };
+
+  const goToPrevPage = () => {
+    if (currentPage > 1) {
+      setCurrentPage(currentPage - 1);
+    }
+  };
+
+  const handleSelectCategory = (categoryId: string) => {
+    setSelectedCategory(categoryId);
+    setCurrentPage(1); // Luôn reset trang về 1
+  };
+
+  const handleApplyFilters = (newFilters: FilterOptions) => {
+    setFilters(newFilters);
+    setShowFilterModal(false);
+    setCurrentPage(1); // Reset về trang 1 khi áp dụng filter
+  };
+  const onAddToCart = (product: ProductRow) => {
     const newItem: Omit<CartItem, "id"> = {
-      productId: product.id,
+      productId: product.id.toString(),
       name: product.name,
       image: product.image,
       price: product.price,
@@ -184,53 +278,15 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     addToCart(newItem); // ✅ Logic thêm vào giỏ hàng
   };
 
-  const handleViewDetail = (productId: string) => {
+  const handleViewDetail = (productId: number) => {
+    // Thay đổi type sang number
     // ✅ Điều hướng chi tiết sản phẩm
     router.push({
       pathname: "/product-detail",
-      params: { id: productId },
+      params: { id: productId.toString() }, // Chuyển ID sang string khi điều hướng
     } as any);
   };
-  const handleApplyFilters = (newFilters: FilterOptions) => {
-    setFilters(newFilters);
-    setShowFilterModal(false);
-  };
-  const handleGoBack = () => {
-    if (router.canGoBack()) {
-      router.back();
-    } else {
-      router.replace("/(tabs)");
-    }
-  };
-  let currentFilteredProducts = products.filter((product) => {
-    const matchesCategory =
-      selectedCategory === "all" || product.category === selectedCategory;
-    const matchesSearch = product.name
-      .toLowerCase()
-      .includes(searchQuery.toLowerCase());
-    const matchesPrice =
-      product.price >= filters.priceRange[0] &&
-      product.price <= filters.priceRange[1];
-    const matchesRating = !filters.rating || product.rating >= filters.rating;
 
-    return matchesCategory && matchesSearch && matchesPrice && matchesRating;
-  });
-
-  // Sort products
-  currentFilteredProducts = [...currentFilteredProducts].sort((a, b) => {
-    switch (filters.sortBy) {
-      case "price-low":
-        return a.price - b.price;
-      case "price-high":
-        return b.price - a.price;
-      case "rating":
-        return b.rating - a.rating;
-      case "popular":
-        return b.soldCount - a.soldCount;
-      default:
-        return 0;
-    }
-  });
   return (
     <View style={styles.container}>
       {/* 💡 HEADER (Fixed/Absolute) */}
@@ -245,7 +301,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
               <Feather
                 name="search"
                 size={20}
-                color={COLORS.slate400}
+                color="#94a3b8"
                 style={styles.searchIcon}
               />
               <TextInput
@@ -269,7 +325,6 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
               )}
             </TouchableOpacity>
           </View>
-
           {/* Categories */}
           <ScrollView
             horizontal
@@ -277,14 +332,16 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
             contentContainerStyle={styles.categoriesScroll}
           >
             {categories.map((category) => {
-              const isActive = selectedCategory === category.id;
+              const categoryFilterId =
+                category.category_id || category.id.toString();
+              const isActive = selectedCategory === categoryFilterId;
               const bgColor = isActive ? "transparent" : COLORS.white;
               const textColor = isActive ? COLORS.white : COLORS.slate700;
 
               return (
                 <TouchableOpacity
                   key={category.id}
-                  onPress={() => setSelectedCategory(category.id)}
+                  onPress={() => handleSelectCategory(categoryFilterId)}
                   style={[
                     styles.categoryButton,
                     {
@@ -304,7 +361,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                     />
                   )}
                   <View style={styles.categoryContent}>
-                    <Text style={{ fontSize: 16 }}>{category.icon}</Text>
+                    <Text style={{ fontSize: 16 }}>{category.image}</Text>
                     <Text style={[styles.categoryText, { color: textColor }]}>
                       {" "}
                       {category.name}{" "}
@@ -317,10 +374,10 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
 
           {/* Products Grid */}
           <FlatList
-            data={filteredProducts}
-            keyExtractor={(item) => item.id}
+            data={displayedProducts}
+            keyExtractor={(item) => item.id.toString()}
             renderItem={({ item: product }) => {
-              const isFavorite = favorites.includes(product.id);
+              const isFavorite = favorites.includes(product.id.toString());
               const heartIconName = isFavorite ? "heart" : "heart-outline";
 
               return (
@@ -349,7 +406,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                           color={isFavorite ? COLORS.red500 : COLORS.slate400}
                         />
                       </TouchableOpacity>
-                      {product.popular && (
+                      {product.price > 60000 && (
                         <View style={styles.hotTag}>
                           <Text style={styles.hotTagText}>🔥 Hot</Text>
                         </View>
@@ -371,19 +428,19 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                           size={14}
                           color={COLORS.amber400}
                         />
-                        <Text style={styles.ratingText}>
+                        {/* <Text style={styles.ratingText}>
                           {" "}
                           {product.rating}{" "}
                         </Text>
                         <Text style={styles.soldCountText}>
                           {" "}
                           ({product.soldCount}){" "}
-                        </Text>
+                        </Text> */}
                       </View>
                       <View style={styles.productFooter}>
                         <Text style={styles.productPrice}>
                           {" "}
-                          {product.price.toLocaleString("vi-VN")}đ{" "}
+                          {Number(product.price).toLocaleString("vi-VN")}đ
                         </Text>
                         <TouchableOpacity
                           onPress={() => onAddToCart(product)} // ✅ GỌI HÀM ADD TO CART THẬT
@@ -403,7 +460,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
             contentContainerStyle={styles.productsGrid}
           />
 
-          {filteredProducts.length === 0 && (
+          {displayedProducts.length === 0 && (
             <View style={styles.noResultsContainer}>
               <Text style={styles.noResultsEmoji}>🔍</Text>
               <Text style={styles.noResultsText}>
@@ -412,7 +469,15 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
             </View>
           )}
         </View>
-
+        {totalPages > 1 && (
+          <PaginationControls
+            currentPage={currentPage}
+            totalPages={totalPages}
+            goToPrev={goToPrevPage}
+            goToNext={goToNextPage}
+            isLoading={isLoading}
+          />
+        )}
         {/* Padding cuối cùng cho ScrollView */}
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -429,6 +494,52 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
 export default MenuPage;
 // ... (STYLESHEET)
 // -----------------------------------------------------------
+// 💡 PAGINATION STYLES
+const paginationStyles = StyleSheet.create({
+  container: {
+    flexDirection: "row",
+    justifyContent: "center",
+    alignItems: "center",
+    paddingVertical: 20,
+    backgroundColor: COLORS.bg,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.slate200,
+  },
+  button: {
+    backgroundColor: COLORS.emerald500,
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginHorizontal: 10,
+    shadowColor: COLORS.emerald500,
+    shadowOffset: { width: 0, height: 2 },
+    shadowOpacity: 0.4,
+    shadowRadius: 3,
+    elevation: 5,
+  },
+  buttonDisabled: {
+    backgroundColor: COLORS.slate200,
+    shadowColor: "transparent",
+    opacity: 0.7,
+  },
+  info: {
+    minWidth: 80,
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  pageText: {
+    fontSize: 16,
+    color: COLORS.slate700,
+    fontWeight: "500",
+  },
+  currentPageText: {
+    color: COLORS.emerald600,
+    fontWeight: "bold",
+  },
+  totalPageText: {
+    color: COLORS.slate500,
+  },
+});
 // 💡 STYLE SHEET
 // -----------------------------------------------------------
 

@@ -1,27 +1,33 @@
-import React, { useState, ComponentProps } from "react";
+import { Feather } from "@expo/vector-icons";
+import DateTimePicker from "@react-native-community/datetimepicker";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { ComponentProps, useState } from "react";
+import { SubmitHandler, useForm } from "react-hook-form";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  Image,
-  Dimensions,
-  Platform,
+  ActivityIndicator,
   Alert,
+  Image,
   Modal,
+  Platform,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { useForm, SubmitHandler } from "react-hook-form";
-import { Feather, Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { LinearGradient } from "expo-linear-gradient";
-import DateTimePicker from "@react-native-community/datetimepicker";
 // 💡 IMPORTS CONTEXTS & COMPONENTS
-import { useAuth, User } from "../context/AuthContext";
-import { Header } from "../components/Header";
+import * as ImagePicker from "expo-image-picker";
 import { useRouter } from "expo-router";
+import { Header } from "../components/Header";
+import { useAuth } from "../context/AuthContext";
+import {
+  updateUser,
+  uploadFileToBaserow,
+  UserRow,
+} from "./services/baserowApi";
 // --- Types & Data ---
 type FeatherIconName = ComponentProps<typeof Feather>["name"];
 type Page = string; // Dùng cho navigateTo
@@ -38,21 +44,26 @@ interface ProfileFormData {
   gender?: "male" | "female" | "other";
 }
 
-const AVATAR_OPTIONS = [
-  "https://images.unsplash.com/photo-1535713875002-d1d0cf377fde?w=200",
-  "https://images.unsplash.com/photo-1599566150163-29194dcaad36?w=200",
-  "https://images.unsplash.com/photo-1494790108377-be9c29b29330?w=200",
-  "https://images.unsplash.com/photo-1527980965255-d3b416303d12?w=200",
-  "https://images.unsplash.com/photo-1438761681033-6461ffad8d80?w=200",
-  "https://images.unsplash.com/photo-1607746882042-944635dfe10e?w=200",
-];
-
 const GENDER_OPTIONS = [
   { value: "male", label: "Nam", icon: "👨" },
   { value: "female", label: "Nữ", icon: "👩" },
   { value: "other", label: "Khác", icon: "🧑" },
 ];
-
+const getGenderValue = (genderData: any): "male" | "female" | "other" => {
+  // 1. Nếu là Object Baserow (có thuộc tính 'value')
+  if (genderData && typeof genderData === "object" && "value" in genderData) {
+    return genderData.value.toLowerCase() as "male" | "female" | "other";
+  }
+  // 2. Nếu là chuỗi (ví dụ: đã được cập nhật hoặc là giá trị mặc định)
+  if (
+    typeof genderData === "string" &&
+    ["male", "female", "other"].includes(genderData.toLowerCase())
+  ) {
+    return genderData.toLowerCase() as "male" | "female" | "other";
+  }
+  // 3. Giá trị fallback an toàn nhất
+  return "other";
+};
 const COLORS = {
   white: "#ffffff",
   slate50: "#f8fafc",
@@ -74,15 +85,17 @@ const COLORS = {
 
 export function EditProfilePage({ goBack }: EditProfilePageProps) {
   // 💡 SỬA LỖI: Chỉ dùng user và signIn từ useAuth
-  const { user, signIn } = useAuth();
+  const { user, updateUserContext } = useAuth();
   const router = useRouter();
   const [showAvatarPicker, setShowAvatarPicker] = useState(false);
   const [selectedAvatar, setSelectedAvatar] = useState(user?.avatar || "");
   const insets = useSafeAreaInsets();
+  const [isSaving, setIsSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateValue, setDateValue] = useState(
     user?.birthday ? new Date(user.birthday) : new Date()
   );
+
   const {
     register,
     handleSubmit,
@@ -95,10 +108,49 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
       email: user?.email || "",
       phone: user?.phone || "",
       birthday: undefined, // Đặt giá trị ban đầu là undefined nếu không có
-      gender: user?.gender || "male",
+      gender: user ? getGenderValue(user.gender) : "other",
     },
   });
+  const pickImage = async (source: "gallery" | "camera") => {
+    let result;
 
+    // Yêu cầu quyền truy cập
+    const permissionResult =
+      source === "camera"
+        ? await ImagePicker.requestCameraPermissionsAsync()
+        : await ImagePicker.requestMediaLibraryPermissionsAsync();
+
+    if (permissionResult.granted === false) {
+      Alert.alert(
+        "Lỗi",
+        "Cần quyền truy cập thư viện ảnh hoặc camera để thay đổi ảnh đại diện."
+      );
+      return;
+    }
+
+    setShowAvatarPicker(false); // Đóng modal chọn ảnh mock
+
+    if (source === "gallery") {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+    } else {
+      result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.8,
+      });
+    }
+
+    if (!result.canceled) {
+      // 💡 SỬ DỤNG URI ẢNH ĐƯỢC CHỌN TỪ ĐIỆN THOẠI
+      setSelectedAvatar(result.assets[0].uri);
+    }
+  };
   // Đăng ký các trường đầu vào cho react-hook-form
   React.useEffect(() => {
     register("name", {
@@ -137,22 +189,60 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
       setValue("birthday", formattedDate, { shouldValidate: true });
     }
   };
-  // 💡 HÀM XỬ LÝ LƯU (SỬ DỤNG signIn)
-  const onSubmit = async (data: ProfileFormData) => {
-    // 1. Tạo đối tượng user đã được cập nhật
-    const updatedUser: User = {
-      ...user!, // Dùng user hiện tại (ID, token, etc.)
-      name: data.name,
-      email: data.email,
-      phone: data.phone,
-      avatar: selectedAvatar,
-      // Thêm các trường mới
-      birthday: dateValue.toISOString().split("T")[0],
-      gender: data.gender,
-    };
+  const onSubmit: SubmitHandler<ProfileFormData> = async (data) => {
+    // 💡 CHECK USER VÀ ID
+    if (!user || !user.id) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi",
+        text2: "Không tìm thấy ID người dùng để cập nhật.",
+        visibilityTime: 3000,
+      });
+      return;
+    }
 
     try {
-      await signIn(updatedUser); // 2. Gọi signIn để lưu và cập nhật Context
+      // 1. ✅ XỬ LÝ UPLOAD ẢNH NẾU LÀ URI CỤC BỘ MỚI
+      setIsSaving(true);
+
+      let avatarUrl = user?.avatar || "";
+      // 🟦 Nếu user chọn avatar mới → upload lên Baserow
+      if (selectedAvatar && selectedAvatar.startsWith("file://")) {
+        console.log("📤 Uploading new avatar:", selectedAvatar);
+
+        const uploadResult = await uploadFileToBaserow(selectedAvatar);
+
+        avatarUrl = uploadResult.url; // Baserow trả về .url
+        console.log("✅ Uploaded Avatar URL:", avatarUrl);
+      }
+      // 2. Chuẩn bị Payload cho API Baserow
+      const payload: Partial<UserRow> = {
+        name: data.name.trim(),
+        phone: data.phone.trim(),
+        email: data.email.trim().toLowerCase(),
+
+        // ✅ CẬP NHẬT AVATAR BẰNG PUBLIC URL
+        avatar: avatarUrl,
+
+        birthday: data.birthday || "",
+        gender: data.gender || "other",
+      }; // 3. Gọi API CẬP NHẬT HỒ SƠ
+      console.log("📦 [UPDATE PAYLOAD]", payload);
+      const result = await updateUser(user.id, payload as any);
+
+      // 4. XỬ LÝ LỖI LOGIC/VALIDATION TỪ BASEROW API
+      if (!result.success) {
+        Toast.show({
+          type: "error",
+          text1: "Lỗi Cập nhật",
+          text2: result.message,
+          visibilityTime: 5000,
+        });
+        return;
+      }
+
+      // 5. Nếu thành công, cập nhật lại Context
+      updateUserContext(result.data!);
 
       Toast.show({
         type: "success",
@@ -160,14 +250,16 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
         visibilityTime: 2000,
       });
       router.back();
-    } catch (error) {
-      console.log("UPDATE PROFILE ERROR:", error);
+    } catch (error: any) {
+      console.error("UPDATE PROFILE CATCH ERROR:", error);
       Toast.show({
         type: "error",
-        text1: "Lỗi",
-        text2: "Không thể lưu thông tin.",
+        text1: "Lỗi Hệ Thống",
+        text2: error.message || "Không thể kết nối đến máy chủ.",
         visibilityTime: 3000,
       });
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -379,7 +471,11 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
                 end={{ x: 1, y: 0 }}
                 style={styles.saveButtonBackground}
               >
-                <Text style={styles.saveButtonText}>Lưu thay đổi</Text>
+                {isSaving ? (
+                  <ActivityIndicator size="small" color={COLORS.white} />
+                ) : (
+                  <Text style={styles.saveButtonText}>Lưu thay đổi</Text>
+                )}
               </LinearGradient>
             </TouchableOpacity>
 
@@ -412,26 +508,26 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Chọn ảnh đại diện</Text>
-            <View style={styles.avatarGrid}>
-              {AVATAR_OPTIONS.map((avatar, index) => (
-                <TouchableOpacity
-                  key={index}
-                  onPress={() => {
-                    setSelectedAvatar(avatar);
-                    setShowAvatarPicker(false);
-                  }}
-                  style={[
-                    styles.avatarOptionButton,
-                    selectedAvatar === avatar && styles.avatarSelectedRing,
-                  ]}
-                >
-                  <Image
-                    source={{ uri: avatar }}
-                    style={styles.avatarImageOption}
-                  />
-                </TouchableOpacity>
-              ))}
+
+            <View style={styles.imagePickerOptions}>
+              {/* 1. NÚT CHỌN TỪ THƯ VIỆN */}
+              <TouchableOpacity
+                style={styles.pickerOptionButton}
+                onPress={() => pickImage("gallery")}
+              >
+                <Feather name="image" size={24} color={COLORS.emerald600} />
+                <Text style={styles.pickerOptionText}>Chọn từ thư viện</Text>
+              </TouchableOpacity>
+              {/* 2. NÚT CHỤP ẢNH MỚI */}
+              <TouchableOpacity
+                style={styles.pickerOptionButton}
+                onPress={() => pickImage("camera")}
+              >
+                <Feather name="camera" size={24} color={COLORS.emerald600} />
+                <Text style={styles.pickerOptionText}>Chụp ảnh mới</Text>
+              </TouchableOpacity>
             </View>
+
             <TouchableOpacity
               onPress={() => setShowAvatarPicker(false)}
               style={styles.modalCloseButton}
@@ -639,6 +735,26 @@ const styles = StyleSheet.create({
     borderColor: "transparent",
     alignItems: "center",
     justifyContent: "center",
+  },
+  imagePickerOptions: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    marginBottom: 24,
+    gap: 12,
+  },
+  pickerOptionButton: {
+    flex: 1,
+    borderWidth: 1,
+    borderColor: COLORS.slate200,
+    borderRadius: 12,
+    padding: 16,
+    alignItems: "center",
+    justifyContent: "center",
+    gap: 8,
+  },
+  pickerOptionText: {
+    color: COLORS.slate700,
+    fontSize: 14,
   },
   avatarImageOption: { width: "100%", height: "100%", resizeMode: "cover" },
   avatarSelectedRing: { borderColor: COLORS.emerald500 },

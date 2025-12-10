@@ -1,28 +1,36 @@
-import React, { useState, useEffect, ComponentProps } from "react";
+import { AntDesign, Feather, MaterialCommunityIcons } from "@expo/vector-icons";
+import Checkbox from "expo-checkbox";
+import React, { ComponentProps, useEffect, useState } from "react";
+import { FieldValues, SubmitHandler, useForm } from "react-hook-form";
 import {
-  View,
+  ActivityIndicator,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
-  Platform,
+  View,
 } from "react-native";
-import { useForm, SubmitHandler, FieldValues } from "react-hook-form";
-import { MaterialCommunityIcons, AntDesign, Feather } from "@expo/vector-icons";
-import Checkbox from "expo-checkbox";
+import Toast from "react-native-toast-message"; // 💡 IMPORT Toast
+
+// 💡 IMPORT HÀM REGISTER API
+import { registerUser } from "../../services/baserowApi"; // ⚠️ Đảm bảo đúng đường dẫn
 
 // Lấy kiểu dữ liệu của prop 'name' từ component Feather
 type FeatherIconName = ComponentProps<typeof Feather>["name"];
 
 // Định nghĩa kiểu dữ liệu cho Form
 interface RegisterFormData extends FieldValues {
-  fullName: string;
+  name: string;
   phone: string;
   email: string;
   password: string;
   confirmPassword: string;
   agreeToTerms: boolean;
+  birthday?: string | null;
+  gender?: "male" | "female" | "other" | null;
+  address?: string | null;
+  avatar?: string | null;
 }
 
 // Định nghĩa FieldName chỉ bao gồm các khóa kiểu chuỗi
@@ -46,8 +54,8 @@ const COLORS = {
 // Component chính
 export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
   const [showPassword, setShowPassword] = useState(false);
-  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
-
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false); // 💡 STATE QUẢN LÝ LOADING
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const {
     register,
     handleSubmit,
@@ -56,12 +64,17 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
     formState: { errors },
   } = useForm<RegisterFormData>({
     defaultValues: {
-      fullName: "",
+      name: "",
       phone: "",
       email: "",
       password: "",
       confirmPassword: "",
       agreeToTerms: false,
+      // Đặt giá trị mặc định cho các trường ẩn
+      birthday: "",
+      gender: "other", // Giữ lại giá trị hợp lệ cho Single Select
+      address: "",
+      avatar: "",
     },
   });
 
@@ -69,7 +82,7 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
 
   useEffect(() => {
     // ... (Validation giữ nguyên)
-    register("fullName", {
+    register("name", {
       required: "Họ và tên là bắt buộc",
       minLength: { value: 2, message: "Họ và tên phải có ít nhất 2 ký tự" },
       pattern: {
@@ -106,19 +119,96 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
     register("agreeToTerms", {
       required: "Bạn phải đồng ý với điều khoản dịch vụ",
     });
-  }, [register, password]);
+    register("birthday");
+    register("gender");
+    register("address");
+    register("avatar");
+  }, [register, password]); // 💡 HÀM SUBMIT VÀ GỌI API
 
-  const onSubmit: SubmitHandler<RegisterFormData> = (data) => {
-    console.log("Register data:", data);
+  // Hàm Helper để loại bỏ null/undefined/chuỗi rỗng khỏi Payload
+  const cleanupPayload = (data: RegisterFormData) => {
+    const cleaned: Record<string, any> = {};
+    for (const key in data) {
+      const value = data[key as RegisterFieldName];
 
-    // 💡 SỬA ĐỔI CHÍNH: Gọi callback onSuccess sau khi Alert
-    Alert.alert("Thông báo", "Đăng ký thành công!", [
-      {
-        text: "OK",
-        onPress: onRegistrationSuccess, // Gọi prop callback để chuyển tab/màn hình
-      },
-    ]);
+      // Bỏ qua các trường xác nhận mật khẩu và đồng ý điều khoản
+      if (key === "confirmPassword" || key === "agreeToTerms") continue;
+
+      let cleanedValue = value;
+      if (typeof value === "string") {
+        cleanedValue = value.trim();
+      }
+
+      // ✅ FIX: Chỉ giữ lại các giá trị KHÔNG phải null, undefined, HOẶC CHUỖI RỖNG
+      // Đây là cách duy nhất để tránh lỗi 400 của Baserow với các cột Date/URL/Address trống.
+      if (
+        cleanedValue !== null &&
+        cleanedValue !== undefined &&
+        cleanedValue !== ""
+      ) {
+        cleaned[key] = cleanedValue;
+      }
+    }
+    return cleaned;
   };
+
+  const onSubmit: SubmitHandler<RegisterFormData> = async (data) => {
+    console.log("📤 BẮT ĐẦU ĐĂNG KÝ");
+    console.log("➡ Email nhập:", data.email);
+
+    if (!data.agreeToTerms) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi Đăng ký",
+        text2: "Vui lòng đồng ý với Điều khoản dịch vụ.",
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    try {
+      const finalPayload = cleanupPayload(data);
+
+      console.log("📦 Payload gửi lên Baserow:", finalPayload);
+
+      const res = await registerUser(finalPayload);
+
+      console.log("🔍 KẾT QUẢ ĐĂNG KÝ:", res);
+
+      // ⭐⭐⭐⭐ FIX QUAN TRỌNG ⭐⭐⭐⭐
+      if (!res.success) {
+        Toast.show({
+          type: "error",
+          text1: "Đăng ký thất bại!",
+          text2: res.message || "Email đã được sử dụng.",
+        });
+        return; // 👉 DỪNG LẠI, KHÔNG CHẠY TIẾP
+      }
+
+      // ⭐ Nếu đến đây -> success = true thật sự
+      Toast.show({
+        type: "success",
+        text1: "Đăng ký thành công!",
+        text2: "Bây giờ bạn có thể đăng nhập.",
+      });
+
+      setTimeout(() => {
+        onRegistrationSuccess();
+      }, 200);
+    } catch (err) {
+      console.log("❌ LỖI API:", err);
+      Toast.show({
+        type: "error",
+        text1: "Đăng ký thất bại!",
+        text2: "Lỗi hệ thống.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
+  const isButtonDisabled = isSubmitting;
 
   const renderPasswordField = (
     field: "password" | "confirmPassword",
@@ -198,10 +288,8 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
 
   return (
     <View style={styles.container}>
-      {/* Full Name Field */}
-      {renderTextInput("fullName", "Họ và tên", "Nguyễn Văn A", "user")}
+      {renderTextInput("name", "Họ và tên", "Nguyễn Văn A", "user")}
 
-      {/* Phone Field */}
       {renderTextInput(
         "phone",
         "Số điện thoại",
@@ -210,7 +298,6 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         "phone-pad"
       )}
 
-      {/* Email Field */}
       {renderTextInput(
         "email",
         "Email",
@@ -219,7 +306,6 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         "email-address"
       )}
 
-      {/* Password Field */}
       {renderPasswordField(
         "password",
         "Mật khẩu",
@@ -228,7 +314,6 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         () => setShowPassword(!showPassword)
       )}
 
-      {/* Confirm Password Field */}
       {renderPasswordField(
         "confirmPassword",
         "Xác nhận mật khẩu",
@@ -236,7 +321,6 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         showConfirmPassword,
         () => setShowConfirmPassword(!showConfirmPassword)
       )}
-
       {/* Terms Checkbox */}
       <View style={styles.fieldContainer}>
         <TouchableOpacity
@@ -258,8 +342,8 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
             style={styles.checkbox}
           />
           <Text style={styles.checkboxLabel}>
-            Tôi đồng ý với{" "}
-            <Text style={{ color: COLORS.primary }}>Điều khoản dịch vụ</Text> và{" "}
+            Tôi đồng ý với
+            <Text style={{ color: COLORS.primary }}>Điều khoản dịch vụ</Text> và
             <Text style={{ color: COLORS.primary }}>Chính sách bảo mật</Text>
           </Text>
         </TouchableOpacity>
@@ -267,28 +351,34 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
           <Text style={styles.errorText}>{errors.agreeToTerms.message}</Text>
         )}
       </View>
-
       {/* Submit Button */}
       <TouchableOpacity
-        style={[styles.submitButton, { marginTop: 10 }]}
+        style={[
+          styles.submitButton,
+          { marginTop: 10 },
+          isButtonDisabled && { opacity: 0.7 }, // Vô hiệu hóa/Làm mờ nút
+        ]}
         onPress={handleSubmit(onSubmit)}
+        disabled={isSubmitting}
       >
-        <Text style={styles.submitButtonText}>Đăng ký ngay</Text>
+        {isSubmitting ? (
+          <ActivityIndicator color="#fff" size="small" />
+        ) : (
+          <Text style={styles.submitButtonText}>Đăng ký ngay</Text>
+        )}
       </TouchableOpacity>
-
-      {/* Divider */}
       <View style={styles.dividerContainer}>
         <View style={styles.dividerLine} />
         <Text style={styles.dividerText}>Hoặc đăng ký với</Text>
         <View style={styles.dividerLine} />
       </View>
 
-      {/* Social Register */}
       <View style={styles.socialButtonsContainer}>
         <TouchableOpacity style={styles.socialButton}>
           <AntDesign name="google" size={24} color="#DB4437" />
           <Text style={styles.socialButtonText}>Google</Text>
         </TouchableOpacity>
+
         <TouchableOpacity style={styles.socialButton}>
           <MaterialCommunityIcons name="facebook" size={24} color="#1877F2" />
           <Text style={styles.socialButtonText}>Facebook</Text>

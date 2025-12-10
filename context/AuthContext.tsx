@@ -1,99 +1,114 @@
-import React, {
-  createContext,
-  useContext,
-  useState,
-  useEffect, // 💡 Cần dùng useEffect để giả lập quá trình tải
-  ReactNode,
-} from "react";
 import { useRouter } from "expo-router";
+import React, { createContext, ReactNode, useContext, useState } from "react";
+import { loginUser, UserRow } from "../app/services/baserowApi";
 
 // ----------------------------------------------------------------------
-// Định nghĩa Kiểu dữ liệu và Interface (Giữ nguyên)
+// Kiểu dữ liệu
 // ----------------------------------------------------------------------
 
-export interface User {
-  id: string;
-  name: string;
-  email: string;
-  phone: string;
-  birthday?: string;
-  gender?: "male" | "female" | "other";
-  avatar?: string;
-  token?: string;
-}
+export type User = Omit<UserRow, "password_hash">;
 
 interface AuthContextType {
   user: User | null;
   isLoading: boolean;
-  signIn: (userData: User) => Promise<void>;
+  signIn: (email: string, password: string) => Promise<User>;
   signOut: () => Promise<void>;
+  updateUserContext: (updatedData: Partial<User>) => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// 💡 DỮ LIỆU CODE CỨNG (MOCK DATA)
-const USER_MOCK_DATA: User = {
-  id: "1",
-  name: "Nguyễn Văn A (MOCK)",
-  email: "nguyenvana@mock.com",
-  phone: "0901234567",
-  birthday: "1990-01-01",
-  gender: "male",
-  token: "mock_token_active", // Thêm token để giả lập trạng thái hoạt động
+// ----------------------------------------------------------------------
+// Hàm timeout tiện ích
+// ----------------------------------------------------------------------
+
+const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
+  return new Promise((resolve, reject) => {
+    const timer = setTimeout(() => {
+      reject(new Error("API Timeout: Server phản hồi quá lâu."));
+    }, ms);
+
+    promise
+      .then(resolve)
+      .catch(reject)
+      .finally(() => clearTimeout(timer));
+  });
 };
 
+// ----------------------------------------------------------------------
+// AuthProvider
+// ----------------------------------------------------------------------
+
 export function AuthProvider({ children }: { children: ReactNode }) {
-  // 💡 KHỞI TẠO: Bắt đầu với user = null (chờ tải)
   const [user, setUser] = useState<User | null>(null);
-
-  // 💡 KHỞI TẠO: Bắt đầu với isLoading = true (đang giả lập quá trình tải)
-  const [isLoading, setIsLoading] = useState(true);
-
+  const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  // 1. Tải trạng thái user MOCK khi khởi động
-  useEffect(() => {
-    // Giả lập quá trình tải:
-    // Thường thì ở đây sẽ gọi SecureStore hoặc API.
-    // Chúng ta giả lập mất 1 giây để tải và gán USER_MOCK_DATA.
+  // ------------------------------------------------------------------
+  // SIGN IN
+  // ------------------------------------------------------------------
+  const signIn = async (email: string, password: string): Promise<User> => {
+    setIsLoading(true);
 
-    const mockLoad = setTimeout(() => {
-      // 💡 SỬ DỤNG DỮ LIỆU CỨNG: Tự động gán user
-      setUser(USER_MOCK_DATA);
-      setIsLoading(false); // Kết thúc quá trình tải
-    }, 1000);
+    try {
+      console.log("AUTH: Login started:", email);
 
-    return () => clearTimeout(mockLoad); // Dọn dẹp
-  }, []);
+      // ⛔ loginUser KHÔNG trả về User — nó trả object success/data/message
+      const response = await withTimeout(loginUser(email, password), 10000);
 
-  // 2. Đăng nhập (Vẫn giữ cho mục đích test)
-  const signIn = async (userData: User) => {
-    setUser(userData);
-    await new Promise((resolve) => setTimeout(resolve, 500));
-    router.replace("/(tabs)");
+      // Nếu hệ thống lỗi không mong muốn (success = false)
+      if (!response.success) {
+        throw new Error(response.message || "Đăng nhập thất bại.");
+      }
+
+      // Thành công → response.data là User
+      const userData = response.data!;
+      setUser(userData);
+
+      console.log("AUTH: Login success → user saved.");
+      return userData;
+    } catch (error: any) {
+      console.log("AUTH: Login FAILED:", error.message);
+      setUser(null);
+      throw new Error(error.message); // UI tự toast error
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // 3. Đăng xuất (Vẫn giữ cho mục đích test)
-  const signOut = async () => {
+  // ------------------------------------------------------------------
+  // SIGN OUT
+  // ------------------------------------------------------------------
+  const signOut = async (): Promise<void> => {
     setUser(null);
-    await new Promise((resolve) => setTimeout(resolve, 200));
+    await new Promise((res) => setTimeout(res, 200));
     router.replace("/App");
   };
-
+  const updateUserContext = (updatedData: Partial<User>) => {
+    if (user) {
+      // Ghi đè các trường cũ bằng dữ liệu mới
+      setUser((prevUser) => ({
+        ...prevUser!,
+        ...updatedData,
+      }));
+    }
+  };
   return (
-    <AuthContext.Provider value={{ user, isLoading, signIn, signOut }}>
+    <AuthContext.Provider
+      value={{ user, isLoading, signIn, signOut, updateUserContext }}
+    >
       {children}
     </AuthContext.Provider>
   );
 }
 
 // ----------------------------------------------------------------------
-// Custom Hook (Giữ nguyên)
+// Hook
 // ----------------------------------------------------------------------
 
-export function useAuth() {
+export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
-  if (context === undefined) {
+  if (!context) {
     throw new Error("useAuth must be used within an AuthProvider");
   }
   return context;

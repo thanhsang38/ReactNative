@@ -22,8 +22,22 @@
       "predictiveBackGestureEnabled": false
     },
     "web": {
+      "bundler": "metro",
       "output": "static",
-      "favicon": "./assets/images/favicon.png"
+      "favicon": "./assets/images/favicon.png",
+     
+      "proxy": {
+        "/api/database/rows/table/": { 
+          "target": "https://api.baserow.io",
+          "changeOrigin": true,
+          "pathRewrite": { 
+       
+            "^/api/database/rows/table/": "/api/database/rows/table/"
+          },
+          "secure": true
+        }
+      }
+     
     },
     "plugins": [
       "expo-router",
