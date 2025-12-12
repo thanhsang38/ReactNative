@@ -1,31 +1,29 @@
-import React, { useState } from "react";
+import { MaterialCommunityIcons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
+import Checkbox from "expo-checkbox";
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
+import { SubmitHandler, useForm } from "react-hook-form";
 import {
-  View,
+  ActivityIndicator,
+  Platform,
+  StyleSheet,
   Text,
   TextInput,
   TouchableOpacity,
-  StyleSheet,
-  Alert,
-  Platform,
-  ActivityIndicator, // 💡 Thêm ActivityIndicator để hiển thị loading
+  View,
 } from "react-native";
-import { useForm, SubmitHandler } from "react-hook-form";
-import { MaterialCommunityIcons, AntDesign } from "@expo/vector-icons";
-import Checkbox from "expo-checkbox";
 import Toast from "react-native-toast-message";
-import { useRouter } from "expo-router";
 
-// 💡 IMPORT HOOK AUTH
-import { useAuth } from "../../../context/AuthContext"; // ⚠️ Đảm bảo đúng đường dẫn
+// IMPORT AUTH
+import { useAuth } from "../../../context/AuthContext";
 
-// Định nghĩa kiểu dữ liệu cho Form
 interface LoginFormData {
   email: string;
   password: string;
   rememberMe: boolean;
 }
 
-// Màu sắc và hằng số
 const COLORS = {
   primary: "#059669",
   secondary: "#14b8a6",
@@ -36,11 +34,11 @@ const COLORS = {
   background: "#fff",
 };
 
-// Component chính
 export function LoginForm() {
-  const [showPassword, setShowPassword] = useState(false); // 💡 STATE ĐỂ QUẢN LÝ VIỆC GỬI FORM (API đang chạy)
+  const [showPassword, setShowPassword] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const router = useRouter(); // 💡 SỬ DỤNG HOOK useAuth
+  const router = useRouter();
+
   const { signIn, isLoading } = useAuth();
 
   const {
@@ -59,7 +57,31 @@ export function LoginForm() {
 
   const rememberMeValue = watch("rememberMe");
 
-  React.useEffect(() => {
+  // ============================================================
+  // 🔥 LOAD EMAIL + PASSWORD IF SAVED
+  // ============================================================
+  useEffect(() => {
+    const loadSavedLogin = async () => {
+      try {
+        const saved = await AsyncStorage.getItem("saved_login");
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          setValue("email", parsed.email);
+          setValue("password", parsed.password);
+          setValue("rememberMe", true);
+        }
+      } catch (err) {
+        console.log("LOAD LOGIN ERROR", err);
+      }
+    };
+
+    loadSavedLogin();
+  }, []);
+
+  // ============================================================
+  // REGISTER INPUTS
+  // ============================================================
+  useEffect(() => {
     register("email", {
       required: "Email là bắt buộc",
       pattern: {
@@ -75,44 +97,62 @@ export function LoginForm() {
       },
     });
     register("rememberMe");
-  }, [register]); // 💡 HÀM XỬ LÝ SUBMIT ĐÃ TÍCH HỢP API
+  }, [register]);
 
+  // ============================================================
+  // SUBMIT
+  // ============================================================
   const onSubmit: SubmitHandler<LoginFormData> = async (data) => {
     setIsSubmitting(true);
+
     try {
-      // 1. GỌI HÀM ĐĂNG NHẬP API TỪ AUTH CONTEXT
-      await signIn(data.email, data.password); // 2. THÀNH CÔNG: Hiển thị thông báo Toast
+      // 🔥 Gọi API đăng nhập từ AuthContext
+      await signIn(data.email, data.password);
+
+      // 🔥 Nếu rememberMe = true → lưu login
+      if (data.rememberMe) {
+        await AsyncStorage.setItem(
+          "saved_login",
+          JSON.stringify({
+            email: data.email,
+            password: data.password,
+          })
+        );
+      } else {
+        await AsyncStorage.removeItem("saved_login");
+      }
 
       Toast.show({
         type: "success_custom",
         text1: "Đăng nhập thành công!",
-        text2: `Chào mừng tới Drink Xann.`,
-        visibilityTime: 2000,
-      }); // 💡 KHÔNG CẦN router.replace ở đây vì hàm signIn đã xử lý chuyển hướng
+        text2: "Chào mừng tới Drink Xann.",
+      });
+
       setTimeout(() => {
         router.replace("/(tabs)");
-      }, 900); // 💡 Tăng độ trễ lên 200ms
+      }, 800);
     } catch (error: any) {
-      // 3. XỬ LÝ LỖI: Hiển thị lỗi API (ví dụ: "Mật khẩu không chính xác")
-      const errorMessage = error.message || "Đã xảy ra lỗi không xác định.";
       Toast.show({
         type: "error",
         text1: "Đăng nhập thất bại!",
-        text2: errorMessage,
-        visibilityTime: 3000,
+        text2: error.message || "Lỗi không xác định.",
       });
     } finally {
-      setIsSubmitting(false); // Kết thúc quá trình gửi
+      setIsSubmitting(false);
     }
   };
 
-  const isButtonDisabled = isSubmitting || isLoading; // Vô hiệu hóa nếu đang gửi hoặc context đang tải
+  const isButtonDisabled = isSubmitting || isLoading;
 
+  // ============================================================
+  // UI
+  // ============================================================
   return (
     <View style={styles.container}>
-      {/* Email Field */}
+      {/* EMAIL */}
       <View style={styles.fieldContainer}>
         <Text style={styles.label}>Email</Text>
+
         <View
           style={[
             styles.inputWrapper,
@@ -130,11 +170,9 @@ export function LoginForm() {
             style={styles.input}
             placeholder="example@email.com"
             placeholderTextColor={COLORS.placeholder}
-            keyboardType="email-address"
             autoCapitalize="none"
-            onChangeText={(text) =>
-              setValue("email", text, { shouldValidate: true })
-            }
+            keyboardType="email-address"
+            onChangeText={(t) => setValue("email", t, { shouldValidate: true })}
           />
         </View>
 
@@ -142,9 +180,11 @@ export function LoginForm() {
           <Text style={styles.errorText}>{errors.email.message}</Text>
         )}
       </View>
-      {/* Password Field */}
+
+      {/* PASSWORD */}
       <View style={styles.fieldContainer}>
         <Text style={styles.label}>Mật khẩu</Text>
+
         <View
           style={[
             styles.inputWrapper,
@@ -163,8 +203,8 @@ export function LoginForm() {
             placeholder="••••••••"
             placeholderTextColor={COLORS.placeholder}
             secureTextEntry={!showPassword}
-            onChangeText={(text) =>
-              setValue("password", text, { shouldValidate: true })
+            onChangeText={(t) =>
+              setValue("password", t, { shouldValidate: true })
             }
           />
 
@@ -184,65 +224,42 @@ export function LoginForm() {
           <Text style={styles.errorText}>{errors.password.message}</Text>
         )}
       </View>
-      {/* Remember Me & Forgot Password */}
+
+      {/* REMEMBER ME */}
       <View style={styles.checkboxRow}>
         <View style={styles.checkboxContainer}>
           <Checkbox
             value={rememberMeValue}
-            onValueChange={(value) =>
-              setValue("rememberMe", value, { shouldValidate: true })
+            onValueChange={(val) =>
+              setValue("rememberMe", val, { shouldValidate: true })
             }
             color={COLORS.primary}
             style={styles.checkbox}
           />
           <Text style={styles.checkboxLabel}>Ghi nhớ</Text>
         </View>
-
-        <TouchableOpacity>
-          <Text style={styles.forgotPasswordText}>Quên mật khẩu?</Text>
-        </TouchableOpacity>
       </View>
-      {/* Submit Button */}
+
+      {/* SUBMIT */}
       <TouchableOpacity
-        style={[
-          styles.submitButton,
-          isButtonDisabled && { opacity: 0.7 }, // Làm mờ nút khi bị vô hiệu hóa
-        ]}
+        style={[styles.submitButton, isButtonDisabled && { opacity: 0.6 }]}
         onPress={handleSubmit(onSubmit)}
-        disabled={isButtonDisabled} // Vô hiệu hóa nút
+        disabled={isButtonDisabled}
       >
         {isSubmitting ? (
-          // Hiển thị loading spinner khi đang gửi
           <ActivityIndicator color="#fff" size="small" />
         ) : (
           <Text style={styles.submitButtonText}>Đăng nhập</Text>
         )}
       </TouchableOpacity>
-      {/* Divider */}
-      <View style={styles.dividerContainer}>
-        <View style={styles.dividerLine} />
-        <Text style={styles.dividerText}>Hoặc đăng nhập với</Text>
-        <View style={styles.dividerLine} />
-      </View>
-      {/* Social Login */}
-      <View style={styles.socialButtonsContainer}>
-        <TouchableOpacity style={styles.socialButton}>
-          <AntDesign name="google" size={24} color="#DB4437" />
-          <Text style={styles.socialButtonText}>Google</Text>
-        </TouchableOpacity>
-
-        <TouchableOpacity style={styles.socialButton}>
-          <MaterialCommunityIcons name="facebook" size={24} color="#1877F2" />
-          <Text style={styles.socialButtonText}>Facebook</Text>
-        </TouchableOpacity>
-      </View>
     </View>
   );
 }
 
-// Định nghĩa Styles (Giữ nguyên)
+// ============================
+// STYLES (KHÔNG ĐỔI)
+// ============================
 const styles = StyleSheet.create({
-  // ... (Giữ nguyên styles)
   container: {
     padding: 0,
     backgroundColor: COLORS.background,
@@ -291,7 +308,6 @@ const styles = StyleSheet.create({
   },
   checkboxRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
     alignItems: "center",
     marginBottom: 20,
   },
@@ -309,63 +325,16 @@ const styles = StyleSheet.create({
     color: COLORS.text,
     fontSize: 16,
   },
-  forgotPasswordText: {
-    color: COLORS.primary,
-    fontSize: 16,
-  },
   submitButton: {
     backgroundColor: COLORS.primary,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: "center",
-    shadowColor: COLORS.primary,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
     elevation: 8,
   },
   submitButtonText: {
     color: "white",
     fontSize: 18,
     fontWeight: "bold",
-  },
-  dividerContainer: {
-    flexDirection: "row",
-    alignItems: "center",
-    marginVertical: 30,
-  },
-  dividerLine: {
-    flex: 1,
-    height: 1,
-    backgroundColor: COLORS.border,
-  },
-  dividerText: {
-    width: "auto",
-    paddingHorizontal: 16,
-    fontSize: 14,
-    color: COLORS.placeholder,
-    backgroundColor: COLORS.background,
-  },
-  socialButtonsContainer: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 10,
-  },
-  socialButton: {
-    flex: 1,
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "center",
-    paddingVertical: 14,
-    borderWidth: 2,
-    borderColor: COLORS.border,
-    borderRadius: 12,
-    backgroundColor: COLORS.background,
-  },
-  socialButtonText: {
-    marginLeft: 10,
-    color: COLORS.text,
-    fontSize: 16,
-    fontWeight: "500",
   },
 });

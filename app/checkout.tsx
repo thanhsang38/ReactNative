@@ -1,30 +1,34 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  Image,
-  Dimensions,
-  Platform,
-  Alert, // Thêm Alert cho xử lý lỗi/xác nhận
-} from "react-native";
-import { Feather, Ionicons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router"; // 💡 SỬ DỤNG ROUTER
-
+import React, { useEffect, useState } from "react";
+import {
+  ActivityIndicator,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Toast from "react-native-toast-message";
+import { getAddresses, OrderCartItem } from "./services/baserowApi";
 // 💡 IMPORTS COMPONENTS & CONTEXTS
 import { Header } from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
-import { useOrders } from "../context/OrderContext";
+import { CreateOrderInput, useOrders } from "../context/OrderContext";
 
 // --- Giả định Types & Constants ---
 type Page = string;
-
+interface DefaultAddress {
+  id: number;
+  addressText: string;
+  phone: string;
+}
 const PAYMENT_METHODS = [
   { id: "cash", name: "Tiền mặt", icon: "💵" },
   { id: "momo", name: "MoMo", icon: "🟣" },
@@ -47,6 +51,7 @@ const COLORS = {
   emerald500: "#10b981",
   emerald600: "#059669",
   teal600: "#0d9488",
+  red500: "#ef4444",
 };
 // -----------------------------------------------------------
 
@@ -63,40 +68,119 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
   const insets = useSafeAreaInsets();
 
   // --- State Khởi tạo ---
-  const [address, setAddress] = useState("123 Nguyễn Huệ, Quận 1, TP.HCM");
-  const [phone, setPhone] = useState(user?.phone || "0901234567");
+  const [defaultAddress, setDefaultAddress] = useState<DefaultAddress | null>(
+    null
+  );
+  const [isAddressLoading, setIsAddressLoading] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState("cash");
   const [note, setNote] = useState("");
+  const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
-  const headerHeight = 50 + insets.top;
+  const headerHeight = 10 + insets.top;
   const totalPrice = getTotalPrice();
 
-  const handlePlaceOrder = () => {
+  const fetchDefaultAddress = async () => {
+    if (!user || !user.id) return;
+
+    setIsAddressLoading(true);
+    try {
+      const result = await getAddresses(user.id);
+      if (result.success && result.data && result.data.length > 0) {
+        // Sắp xếp để tìm địa chỉ mặc định hoặc địa chỉ cũ nhất (ID nhỏ nhất)
+        const sortedAddresses = result.data.sort((a, b) => {
+          if (a.is_default !== b.is_default) {
+            return a.is_default ? -1 : 1; // Mặc định lên đầu
+          }
+          return a.id - b.id; // Nếu không có mặc định, lấy ID nhỏ nhất
+        });
+
+        const defaultAddr = sortedAddresses[0];
+
+        setDefaultAddress({
+          id: defaultAddr.id,
+          addressText: defaultAddr.address,
+          phone: user.phone,
+        });
+      } else {
+        setDefaultAddress(null); // Không có địa chỉ nào
+      }
+    } catch (e) {
+      console.error("Error fetching default address:", e);
+      Toast.show({
+        type: "error",
+        text1: "Lỗi tải địa chỉ",
+        text2: "Vui lòng kiểm tra lại trang Địa chỉ.",
+        visibilityTime: 3000,
+      });
+    } finally {
+      setIsAddressLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user && user.id) {
+      fetchDefaultAddress();
+    } else {
+      setIsAddressLoading(false);
+    }
+  }, [user?.id]);
+
+  const handlePlaceOrder = async () => {
+    // ✅ FIX: Thêm async
     // 💡 Logic Xử lý Đặt hàng
     if (items.length === 0) {
       Alert.alert("Lỗi", "Giỏ hàng đang trống!");
       return;
     }
+    if (!defaultAddress) {
+      Alert.alert("Lỗi", "Vui lòng chọn địa chỉ giao hàng trước khi đặt.");
+      return;
+    }
 
-    // 1. Tạo đơn hàng
-    createOrder({
-      items: items,
+    setIsPlacingOrder(true);
+
+    // 1. Chuẩn bị Items cho API (Chuyển CartItem Client sang OrderCartItem API)
+    const apiItems: OrderCartItem[] = items.map((item) => ({
+      productId: item.productId,
+      name: item.name,
+      image: item.image,
+      price: item.price,
+      quantity: item.quantity,
+      size: item.size,
+      ice: item.ice,
+      sugar: item.sugar,
+      isDrink: item.isDrink,
+    }));
+
+    // 2. Tạo Order Input
+    const orderInput: CreateOrderInput = {
+      items: apiItems,
       total: totalPrice,
-      deliveryAddress: address,
+      deliveryAddressId: defaultAddress.id, // ID Link Row
       paymentMethod: paymentMethod,
-      phone: phone,
+      deliveryAddressText: defaultAddress.addressText, // Chuỗi hiển thị
       note: note,
-      estimatedTime: "20-30 phút",
-    });
+      // BỎ estimatedTime và discount (không có cột Baserow)
+    };
 
-    // 2. Xóa giỏ hàng
-    clearCart();
+    try {
+      // 3. Gọi API tạo đơn hàng
+      await createOrder(orderInput);
 
-    // 3. 💡 ĐIỀU HƯỚNG SỬ DỤNG ROUTER
-    // Điều hướng tới Orders Tab và xóa màn hình Checkout khỏi Stack
-    router.replace("/(tabs)/orders");
+      // 4. Xóa giỏ hàng
+      clearCart();
+
+      // 5. Điều hướng
+      router.replace("/(tabs)/orders");
+    } catch (e) {
+      // Lỗi đã được xử lý trong Context, chỉ cần log
+      console.error("Error placing order:", e);
+      Alert.alert("Lỗi", "Không thể đặt hàng. Vui lòng thử lại.");
+    } finally {
+      setIsPlacingOrder(false);
+    }
   };
-
+  const isBusy = isAddressLoading || isPlacingOrder;
   return (
     <View style={styles.fullContainer}>
       {/* 1. Header (Fixed/Absolute) */}
@@ -119,9 +203,25 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
               activeOpacity={0.7}
             >
               <View style={styles.addressInfo}>
-                <Text style={styles.addressName}>{user?.name}</Text>
-                <Text style={styles.addressDetail}>{address}</Text>
-                <Text style={styles.addressPhone}>{phone}</Text>
+                {isAddressLoading ? (
+                  <ActivityIndicator size="small" color={COLORS.slate500} />
+                ) : defaultAddress ? (
+                  <>
+                    <Text style={styles.addressName}>{user?.name}</Text>
+                    <Text style={styles.addressDetail}>
+                      {defaultAddress.addressText}
+                    </Text>
+                    <Text style={styles.addressPhone}>
+                      {defaultAddress.phone}
+                    </Text>
+                  </>
+                ) : (
+                  <Text
+                    style={[styles.addressDetail, { color: COLORS.red500 }]}
+                  >
+                    Chưa có địa chỉ mặc định. Nhấn để thêm.
+                  </Text>
+                )}
               </View>
               <Feather name="chevron-right" size={20} color={COLORS.slate400} />
             </TouchableOpacity>
@@ -131,29 +231,36 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
           <View style={styles.card}>
             <Text style={styles.sectionTitle}>Sản phẩm đã chọn</Text>
             <View style={styles.itemsList}>
-              {items.map((item) => (
-                <View key={item.id} style={styles.itemRow}>
-                  {/* Ảnh sản phẩm (Dùng Image RN) */}
-                  <Image
-                    source={{ uri: item.image }}
-                    style={styles.itemImage}
-                  />
-                  <View style={styles.itemDetail}>
-                    <Text style={styles.itemName} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    <Text style={styles.itemOptionsText}>
-                      {item.size} • Đá {item.ice}% • Đường {item.sugar}%
-                    </Text>
+              {items.map((item) => {
+                // ✅ FIX: SỬ DỤNG CỜ isDrink TỪ CART ITEM
+                const isDrinkItem = item.isDrink;
+
+                return (
+                  <View key={item.id} style={styles.itemRow}>
+                    {/* Ảnh sản phẩm (Dùng Image RN) */}
+                    <Image
+                      source={{ uri: item.image }}
+                      style={styles.itemImage}
+                    />
+                    <View style={styles.itemDetail}>
+                      <Text style={styles.itemName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      {/* ✅ FIX: LUÔN HIỆN SIZE, CHỈ HIỆN ĐÁ/ĐƯỜNG KHI LÀ ĐỒ UỐNG */}
+                      <Text style={styles.itemOptionsText}>
+                        {isDrinkItem &&
+                          ` Size: ${item.size} • Đá ${item.ice}% • Đường ${item.sugar}%`}
+                      </Text>
+                    </View>
+                    <View style={styles.itemPriceQty}>
+                      <Text style={styles.itemQty}>x{item.quantity}</Text>
+                      <Text style={styles.itemPrice}>
+                        {(item.price * item.quantity).toLocaleString("vi-VN")}đ
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.itemPriceQty}>
-                    <Text style={styles.itemQty}>x{item.quantity}</Text>
-                    <Text style={styles.itemPrice}>
-                      {(item.price * item.quantity).toLocaleString("vi-VN")}đ
-                    </Text>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
 
@@ -273,7 +380,7 @@ export default CheckoutPage;
 
 const styles = StyleSheet.create({
   fullContainer: { flex: 1, backgroundColor: COLORS.slate50 },
-  contentPadding: { paddingHorizontal: 16, paddingVertical: 16 },
+  contentPadding: { paddingHorizontal: 16, paddingVertical: 60 },
   // --- General Cards ---
   card: {
     backgroundColor: COLORS.white,

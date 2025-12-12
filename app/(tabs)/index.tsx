@@ -1,102 +1,41 @@
-import React, { useState, ComponentProps } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  FlatList,
-  Dimensions,
-  Image,
-  Platform,
-} from "react-native";
+import { AntDesign, Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { Feather, Ionicons, AntDesign } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router"; // Cần thêm import này
-
+import React, { ComponentProps, useEffect, useState } from "react";
+import {
+  Dimensions,
+  FlatList,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Toast from "react-native-toast-message";
 // --- Imports Logic Context ---
 import { useAuth } from "../../context/AuthContext";
-import { useCart } from "../../context/CartContext";
-import { CartItem } from "../../context/CartContext";
+import { CartItem, useCart } from "../../context/CartContext";
+import {
+  CategoryRow,
+  getCategories,
+  getProducts,
+  ProductRow,
+} from "../services/baserowApi";
 // --------------------------------------------------
-
+import { Redirect } from "expo-router";
 type AntDesignName = ComponentProps<typeof AntDesign>["name"];
-
-// ❌ ĐÃ XÓA type Page và HomePageProps
-
-interface Product {
-  id: string;
-  name: string;
-  price: number;
-  rating: number;
-  soldCount: number;
-  image: string;
-  popular: boolean;
-}
-
-const products: Product[] = [
-  // ... (Dữ liệu sản phẩm giữ nguyên)
-  {
-    id: "1",
-    name: "Trà sữa Trân Châu",
-    price: 45000,
-    rating: 4.5,
-    soldCount: 120,
-    image: "https://images.unsplash.com/photo-1670468642364-6cacadfb7bb0?w=400",
-    popular: true,
-  },
-  {
-    id: "2",
-    name: "Cà phê Đen Đá",
-    price: 30000,
-    rating: 4.8,
-    soldCount: 350,
-    image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=400",
-    popular: true,
-  },
-  {
-    id: "3",
-    name: "Trà Đào Cam Sả",
-    price: 50000,
-    rating: 4.2,
-    soldCount: 80,
-    image: "https://images.unsplash.com/photo-1645467148762-6d7fd24d7acf?w=400",
-    popular: true,
-  },
-  {
-    id: "4",
-    name: "Smoothie Xoài",
-    price: 65000,
-    rating: 4.9,
-    soldCount: 200,
-    image: "https://images.unsplash.com/photo-1625480499375-27220a672237?w=400",
-    popular: true,
-  },
-  {
-    id: "5",
-    name: "Trà Xanh Matcha",
-    price: 40000,
-    rating: 4.4,
-    soldCount: 150,
-    image: "https://via.placeholder.com/150/8b5cf6",
-    popular: true,
-  },
-  {
-    id: "6",
-    name: "Sữa Tươi Trân Châu",
-    price: 55000,
-    rating: 4.6,
-    soldCount: 180,
-    image: "https://via.placeholder.com/150/ec4899",
-    popular: true,
-  },
-];
 
 const { width } = Dimensions.get("window");
 const ITEM_WIDTH = (width - 48) / 2;
-
+const DRINK_CATEGORIES_NORMALIZED = [
+  "sinh_to",
+  "ca_phe",
+  "tra_sua",
+  "tra_trai_cay",
+];
 const COLORS = {
   bg: "#f8fafc",
   white: "#ffffff",
@@ -115,13 +54,15 @@ const COLORS = {
 
 // 💡 LOẠI BỎ PROPS navigateTo KHỎI HomeRoute
 export function HomeRoute() {
+  <Redirect href="/(tabs)/orders" />;
   const router = useRouter();
   const { user } = useAuth();
   const { addToCart, getTotalItems } = useCart();
   const insets = useSafeAreaInsets();
 
   const [favorites, setFavorites] = useState<string[]>([]);
-  const popularProducts = products.filter((p) => p.popular).slice(0, 6);
+  const [categories, setCategories] = useState<CategoryRow[]>([]);
+  const [allProducts, setAllProducts] = useState<ProductRow[]>([]);
 
   const toggleFavorite = (productId: string) => {
     setFavorites((prev) =>
@@ -132,19 +73,59 @@ export function HomeRoute() {
   };
 
   const cartCount = getTotalItems();
-  const headerHeight = 50 + insets.top;
 
-  const handleAddToCart = (product: Product) => {
+  useEffect(() => {
+    const fetchHomeData = async () => {
+      try {
+        // 1. Fetch Categories (Giới hạn 4 danh mục + 'Tất cả')
+        const categoryResult = await getCategories();
+        if (categoryResult.success && categoryResult.data) {
+          const filteredCategories = categoryResult.data
+            .filter((cat) => cat.category_id !== "all")
+            .slice(0, 4);
+          setCategories(filteredCategories);
+        }
+
+        // 2. Fetch Popular Products (Giới hạn 4 sản phẩm)
+        // Gọi getProducts với limit = 4 và page = 1
+        const productResult = await getProducts();
+        if (productResult.success && productResult.data) {
+          setAllProducts(productResult.data);
+        } else {
+          Toast.show({
+            type: "error",
+            text1: "Lỗi API",
+            text2: productResult.message || "Lỗi tải sản phẩm.",
+            visibilityTime: 4000,
+          });
+        }
+      } catch (e: any) {
+        Toast.show({
+          type: "error",
+          text1: "Lỗi hệ thống",
+          text2: e.message,
+          visibilityTime: 4000,
+        });
+      } finally {
+      }
+    };
+    fetchHomeData();
+  }, []);
+  const popularProducts = allProducts.slice(0, 4);
+  const handleAddToCart = (product: ProductRow) => {
+    const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(
+      product.category ?? ""
+    );
     const newItem: Omit<CartItem, "id"> = {
-      productId: product.id,
+      productId: product.id.toString(),
       name: product.name,
-      image: product.image,
+      image: product.image, // ✅ Dùng image_url từ ProductRow
       price: product.price,
       quantity: 1,
       size: "M",
-      ice: 100,
-      sugar: 100,
-      toppings: [],
+      ice: isDrink ? 75 : 0,
+      sugar: isDrink ? 75 : 0,
+      isDrink: isDrink,
     };
     addToCart(newItem);
   };
@@ -234,20 +215,21 @@ export function HomeRoute() {
             </TouchableOpacity>
           </View>
           <View style={styles.categoryContainerFlex}>
-            {["🧋 Trà sữa", "☕ Cà phê", "🍹 Trái cây", "🥤 Sinh tố"].map(
-              (cat) => (
+            {categories.map((catRow) => {
+              const displayLabel = catRow.name;
+              const path = (catRow.category_id = "/(tabs)/menu"); // Tạm thời dẫn đến Menu chung
+
+              return (
                 <TouchableOpacity
-                  key={cat}
-                  onPress={() => router.push("/(tabs)/menu")} // ✅ DÙNG ROUTER TRỰC TIẾP
+                  key={catRow.id}
+                  onPress={() => router.push(path)}
                   style={styles.categoryItemFlex}
                 >
-                  <Text style={styles.categoryEmoji}>{cat.split(" ")[0]}</Text>
-                  <Text style={styles.categoryLabel}>
-                    {cat.split(" ").slice(1).join(" ")}
-                  </Text>
+                  <Text style={styles.categoryEmoji}>{catRow.image}</Text>
+                  <Text style={styles.categoryLabel}>{displayLabel} </Text>
                 </TouchableOpacity>
-              )
-            )}
+              );
+            })}
           </View>
         </View>
 
@@ -259,7 +241,7 @@ export function HomeRoute() {
           </View>
           <FlatList
             data={popularProducts}
-            keyExtractor={(item) => item.id}
+            keyExtractor={(item) => item.id.toString()}
             numColumns={2}
             scrollEnabled={false}
             columnWrapperStyle={styles.productRow}
@@ -290,13 +272,15 @@ export function HomeRoute() {
                   >
                     <Ionicons
                       name={
-                        favorites.includes(product.id)
+                        favorites.includes(product.id.toString())
                           ? "heart"
                           : "heart-outline"
                       }
                       size={20}
                       color={
-                        favorites.includes(product.id) ? "#ef4444" : "#94a3b8"
+                        favorites.includes(product.id.toString())
+                          ? "#ef4444"
+                          : "#94a3b8"
                       }
                     />
                   </TouchableOpacity>
@@ -308,21 +292,16 @@ export function HomeRoute() {
                     {" "}
                     {product.name}{" "}
                   </Text>
-                  <View style={styles.ratingContainer}>
+                  {/* <View style={styles.ratingContainer}>
                     <Ionicons
                       name="star"
                       size={16}
                       color="#fbbf24"
                       style={{ top: 1 }}
                     />
-                    <Text style={styles.ratingTextSmall}>
-                      {" "}
-                      {product.rating} ({product.soldCount}){" "}
-                    </Text>
-                  </View>
+                  </View> */}
                   <View style={styles.priceContainer}>
                     <Text style={styles.productPrice}>
-                      {" "}
                       {product.price.toLocaleString("vi-VN")}đ{" "}
                     </Text>
                     {/* NÚT THÊM VÀO GIỎ HÀNG */}

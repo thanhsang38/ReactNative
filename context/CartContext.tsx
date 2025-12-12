@@ -1,4 +1,4 @@
-import React, { createContext, useContext, useState, ReactNode } from "react";
+import React, { createContext, ReactNode, useContext, useState } from "react";
 import Toast from "react-native-toast-message"; // 💡 Import Toast cho React Native
 
 // ----------------------------------------------------------------------
@@ -15,9 +15,7 @@ export interface CartItem {
   size: "S" | "M" | "L";
   ice: number;
   sugar: number;
-  // Lưu ý: Mảng trong React Native cần serialization tốt hơn,
-  // nhưng ta giữ nguyên kiểu string[]
-  toppings: string[];
+  isDrink: boolean;
 }
 
 interface CartContextType {
@@ -50,14 +48,47 @@ export function CartProvider({ children }: { children: ReactNode }) {
   };
 
   const addToCart = (item: Omit<CartItem, "id">) => {
-    // 💡 Tối ưu hóa: Kiểm tra xem mục đã tồn tại với cùng options chưa
-    // Để đơn giản, chúng ta tạo id duy nhất mới cho mỗi lần thêm:
-    const newItem: CartItem = {
-      ...item,
-      id: `${item.productId}-${Date.now()}`,
-    };
-    setItems((prev) => [...prev, newItem]);
-    showSuccessToast("Đã thêm vào giỏ hàng!"); // 💡 Thay thế toast.success
+    // ✅ LOGIC GỘP THÔNG MINH BẮT ĐẦU TẠI ĐÂY
+
+    const isDrinkItem = item.isDrink;
+    let existingItemIndex = -1;
+
+    if (isDrinkItem) {
+      // --- LOGIC GỘP CHẶT CHẼ (ĐỒ UỐNG) ---
+      // Gộp nếu ProductID, Size, Ice, VÀ Sugar giống hệt nhau
+      existingItemIndex = items.findIndex(
+        (cartItem) =>
+          cartItem.productId === item.productId &&
+          cartItem.size === item.size &&
+          cartItem.ice === item.ice &&
+          cartItem.sugar === item.sugar
+      );
+    } else {
+      // --- LOGIC GỘP LỎNG LẺO (ĐỒ ĂN/MÓN MẶC ĐỊNH) ---
+      // Gộp chỉ cần ProductID giống nhau (và Size mặc định là M)
+      existingItemIndex = items.findIndex(
+        (cartItem) => cartItem.productId === item.productId
+        // Không cần kiểm tra size, ice, sugar vì chúng được coi là mặc định/không liên quan
+      );
+    }
+
+    if (existingItemIndex !== -1) {
+      // Nếu đã tồn tại, tăng số lượng
+      const updatedItems = [...items];
+      updatedItems[existingItemIndex].quantity += item.quantity;
+      setItems(updatedItems);
+    } else {
+      // Nếu chưa tồn tại, thêm mới với ID duy nhất
+      const newItem: CartItem = {
+        ...item,
+        id: `${item.productId}-${Date.now()}-${Math.random()
+          .toString(36)
+          .substring(2, 9)}`, // Đảm bảo ID duy nhất
+      };
+      setItems((prev) => [...prev, newItem]);
+    }
+
+    showSuccessToast("Đã thêm vào giỏ hàng!");
   };
 
   const removeFromCart = (itemId: string) => {

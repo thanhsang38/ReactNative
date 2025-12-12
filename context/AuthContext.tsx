@@ -1,11 +1,17 @@
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useRouter } from "expo-router";
-import React, { createContext, ReactNode, useContext, useState } from "react";
+import React, {
+  createContext,
+  ReactNode,
+  useContext,
+  useEffect,
+  useState,
+} from "react";
 import { loginUser, UserRow } from "../app/services/baserowApi";
 
-// ----------------------------------------------------------------------
+// ===========================================
 // Kiểu dữ liệu
-// ----------------------------------------------------------------------
-
+// ===========================================
 export type User = Omit<UserRow, "password_hash">;
 
 interface AuthContextType {
@@ -18,9 +24,9 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
-// ----------------------------------------------------------------------
+// ===========================================
 // Hàm timeout tiện ích
-// ----------------------------------------------------------------------
+// ===========================================
 
 const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
   return new Promise((resolve, reject) => {
@@ -35,64 +41,96 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
   });
 };
 
-// ----------------------------------------------------------------------
+// ===========================================
 // AuthProvider
-// ----------------------------------------------------------------------
+// ===========================================
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
-  // ------------------------------------------------------------------
+  // =====================================================
+  // 🔥 Khi mở app → tự load user từ AsyncStorage
+  // =====================================================
+  useEffect(() => {
+    const loadUser = async () => {
+      setIsLoading(true); // 🔥 thêm dòng này
+
+      try {
+        const savedUser = await AsyncStorage.getItem("user");
+        if (savedUser) {
+          setUser(JSON.parse(savedUser));
+          console.log("AUTH: User loaded from storage");
+        }
+      } catch (error) {
+        console.log("AUTH: Load user error:", error);
+      } finally {
+        setIsLoading(false); // 🔥 và thêm dòng này
+      }
+    };
+
+    loadUser();
+  }, []);
+
+  // =====================================================
   // SIGN IN
-  // ------------------------------------------------------------------
+  // =====================================================
   const signIn = async (email: string, password: string): Promise<User> => {
     setIsLoading(true);
 
     try {
       console.log("AUTH: Login started:", email);
 
-      // ⛔ loginUser KHÔNG trả về User — nó trả object success/data/message
       const response = await withTimeout(loginUser(email, password), 10000);
 
-      // Nếu hệ thống lỗi không mong muốn (success = false)
       if (!response.success) {
         throw new Error(response.message || "Đăng nhập thất bại.");
       }
 
-      // Thành công → response.data là User
       const userData = response.data!;
       setUser(userData);
+
+      // 🔥 Lưu lại user vào AsyncStorage
+      await AsyncStorage.setItem("user", JSON.stringify(userData));
 
       console.log("AUTH: Login success → user saved.");
       return userData;
     } catch (error: any) {
       console.log("AUTH: Login FAILED:", error.message);
       setUser(null);
-      throw new Error(error.message); // UI tự toast error
+      await AsyncStorage.removeItem("user");
+      throw new Error(error.message);
     } finally {
       setIsLoading(false);
     }
   };
 
-  // ------------------------------------------------------------------
+  // =====================================================
   // SIGN OUT
-  // ------------------------------------------------------------------
+  // =====================================================
   const signOut = async (): Promise<void> => {
     setUser(null);
-    await new Promise((res) => setTimeout(res, 200));
+
+    // 🔥 Xóa khỏi AsyncStorage
+    await AsyncStorage.removeItem("user");
+
     router.replace("/App");
   };
+
+  // =====================================================
+  // Cập nhật user trong Context
+  // =====================================================
   const updateUserContext = (updatedData: Partial<User>) => {
     if (user) {
-      // Ghi đè các trường cũ bằng dữ liệu mới
-      setUser((prevUser) => ({
-        ...prevUser!,
-        ...updatedData,
-      }));
+      const newUser = { ...user, ...updatedData };
+      setUser(newUser);
+
+      // 🔥 Đồng bộ luôn vào Storage
+      AsyncStorage.setItem("user", JSON.stringify(newUser));
     }
   };
+
   return (
     <AuthContext.Provider
       value={{ user, isLoading, signIn, signOut, updateUserContext }}
@@ -102,10 +140,9 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   );
 }
 
-// ----------------------------------------------------------------------
+// ===========================================
 // Hook
-// ----------------------------------------------------------------------
-
+// ===========================================
 export function useAuth(): AuthContextType {
   const context = useContext(AuthContext);
   if (!context) {

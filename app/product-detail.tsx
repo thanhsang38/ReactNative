@@ -186,7 +186,7 @@ export function ProductDetailPage() {
       size: isDrink ? size : "M", // Mặc định M cho món không phải đồ uống
       ice: isDrink ? ice : 0,
       sugar: isDrink ? sugar : 0,
-      toppings: [], // Toppings bị bỏ qua
+      isDrink: isDrink,
     });
     handleGoBack();
   };

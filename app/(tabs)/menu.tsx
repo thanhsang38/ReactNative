@@ -126,7 +126,12 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   const [showFilterModal, setShowFilterModal] = useState(false); // 💡 STATE MODAL
 
   const [currentPage, setCurrentPage] = useState(1);
-
+  const DRINK_CATEGORIES_NORMALIZED = [
+    "sinh_to",
+    "ca_phe",
+    "tra_sua",
+    "tra_trai_cay",
+  ];
   const [allProducts, setAllProducts] = useState<ProductRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -264,6 +269,10 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     setCurrentPage(1); // Reset về trang 1 khi áp dụng filter
   };
   const onAddToCart = (product: ProductRow) => {
+    const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(
+      product.category ?? ""
+    );
+
     const newItem: Omit<CartItem, "id"> = {
       productId: product.id.toString(),
       name: product.name,
@@ -271,9 +280,9 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
       price: product.price,
       quantity: 1,
       size: "M",
-      ice: 100,
-      sugar: 100,
-      toppings: [],
+      ice: isDrink ? 75 : 0,
+      sugar: isDrink ? 75 : 0,
+      isDrink: isDrink,
     };
     addToCart(newItem); // ✅ Logic thêm vào giỏ hàng
   };
@@ -406,7 +415,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                           color={isFavorite ? COLORS.red500 : COLORS.slate400}
                         />
                       </TouchableOpacity>
-                      {product.price > 60000 && (
+                      {product.price > 30000 && (
                         <View style={styles.hotTag}>
                           <Text style={styles.hotTagText}>🔥 Hot</Text>
                         </View>
@@ -422,21 +431,13 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                         {" "}
                         {product.description}{" "}
                       </Text>
-                      <View style={styles.ratingRow}>
+                      {/* <View style={styles.ratingRow}>
                         <Ionicons
                           name="star"
                           size={14}
                           color={COLORS.amber400}
                         />
-                        {/* <Text style={styles.ratingText}>
-                          {" "}
-                          {product.rating}{" "}
-                        </Text>
-                        <Text style={styles.soldCountText}>
-                          {" "}
-                          ({product.soldCount}){" "}
-                        </Text> */}
-                      </View>
+                      </View> */}
                       <View style={styles.productFooter}>
                         <Text style={styles.productPrice}>
                           {" "}

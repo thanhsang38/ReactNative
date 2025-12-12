@@ -1,18 +1,17 @@
-import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Image,
-  Dimensions,
-  Platform,
-} from "react-native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router";
+import React from "react";
+import {
+  Dimensions,
+  Image,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
 // 💡 Sử dụng Feather và Ionicons để thay thế Lucide
-import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
+import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 💡 IMPORTS COMPONENTS & CONTEXTS
@@ -111,91 +110,91 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
         <View style={styles.contentWrapper}>
           {/* Cart Items */}
           <View style={styles.itemsList}>
-            {items.map((item) => (
-              <View key={item.id} style={styles.itemCard}>
-                <View style={styles.itemDetailsRow}>
-                  {/* Ảnh sản phẩm */}
-                  <Image
-                    source={{ uri: item.image }}
-                    style={styles.itemImage}
-                  />
+            {items.map((item) => {
+              // ✅ LOGIC KIỂM TRA ĐỒ UỐNG: Nếu có giá trị Đá/Đường (khác 0), đó là đồ uống.
+              // Nếu item.ice/item.sugar == 0, đó là đồ ăn (hoặc không chọn options)
+              const isDrinkItem = item.ice > 0 || item.sugar > 0;
+              return (
+                <View key={item.id} style={styles.itemCard}>
+                  <View style={styles.itemDetailsRow}>
+                    {/* Ảnh sản phẩm */}
+                    <Image
+                      source={{ uri: item.image }}
+                      style={styles.itemImage}
+                    />
+                    <View style={styles.itemInfo}>
+                      <Text style={styles.itemName} numberOfLines={1}>
+                        {item.name}
+                      </Text>
+                      {/* Options */}
 
-                  <View style={styles.itemInfo}>
-                    <Text style={styles.itemName} numberOfLines={1}>
-                      {item.name}
-                    </Text>
-                    {/* Options */}
-                    <View style={styles.itemOptions}>
-                      <Text style={styles.itemOptionText}>
-                        Size: {item.size}
-                      </Text>
-                      <Text style={styles.itemOptionText}>
-                        Đá: {item.ice}% • Đường: {item.sugar}%
-                      </Text>
-                      {item.toppings.length > 0 && (
-                        <Text style={styles.itemOptionText} numberOfLines={1}>
-                          Topping: {item.toppings.join(", ")}
-                        </Text>
+                      {/* ✅ FIX: LUÔN HIỂN THỊ SIZE (Size: M/L/S) */}
+
+                      {/* ✅ CHỈ HIỂN THỊ ĐÁ VÀ ĐƯỜNG NẾU LÀ ĐỒ UỐNG */}
+                      {isDrinkItem && (
+                        <View style={styles.itemOptions}>
+                          <Text style={styles.itemOptionText}>
+                            Size: {item.size}
+                          </Text>
+                          <Text style={styles.itemOptionText}>
+                            Đá: {item.ice}% • Đường: {item.sugar}%
+                          </Text>
+                        </View>
                       )}
-                    </View>
 
-                    {/* Price and Controls */}
-                    <View style={styles.itemControlsRow}>
-                      <Text style={styles.itemPrice}>
-                        {item.price.toLocaleString("vi-VN")}đ
-                      </Text>
-
-                      {/* Quantity Controls and Delete */}
-                      <View style={styles.quantityControls}>
-                        {/* Minus */}
-                        <TouchableOpacity
-                          onPress={() =>
-                            updateQuantity(item.id, item.quantity - 1)
-                          }
-                          style={styles.qtyButton}
-                        >
-                          <Feather
-                            name="minus"
-                            size={16}
-                            color={COLORS.slate700}
-                          />
-                        </TouchableOpacity>
-
-                        <Text style={styles.qtyText}> {item.quantity} </Text>
-
-                        {/* Plus */}
-                        <TouchableOpacity
-                          onPress={() =>
-                            updateQuantity(item.id, item.quantity + 1)
-                          }
-                          style={styles.qtyButton}
-                        >
-                          <Feather
-                            name="plus"
-                            size={16}
-                            color={COLORS.slate700}
-                          />
-                        </TouchableOpacity>
-
-                        {/* Delete Button */}
-                        <TouchableOpacity
-                          onPress={() => removeFromCart(item.id)}
-                          style={styles.deleteButton}
-                        >
-                          <Feather
-                            name="trash-2"
-                            size={16}
-                            color={COLORS.red500}
-                          />
-                        </TouchableOpacity>
+                      {/* Price and Controls */}
+                      <View style={styles.itemControlsRow}>
+                        <Text style={styles.itemPrice}>
+                          {Number(item.price).toLocaleString("vi-VN")}đ
+                        </Text>
+                        {/* Quantity Controls and Delete */}
+                        <View style={styles.quantityControls}>
+                          {/* Minus */}
+                          <TouchableOpacity
+                            onPress={() =>
+                              updateQuantity(item.id, item.quantity - 1)
+                            }
+                            style={styles.qtyButton}
+                          >
+                            <Feather
+                              name="minus"
+                              size={16}
+                              color={COLORS.slate700}
+                            />
+                          </TouchableOpacity>
+                          <Text style={styles.qtyText}> {item.quantity} </Text>
+                          {/* Plus */}
+                          <TouchableOpacity
+                            onPress={() =>
+                              updateQuantity(item.id, item.quantity + 1)
+                            }
+                            style={styles.qtyButton}
+                          >
+                            <Feather
+                              name="plus"
+                              size={16}
+                              color={COLORS.slate700}
+                            />
+                          </TouchableOpacity>
+                          {/* Delete Button */}
+                          <TouchableOpacity
+                            onPress={() => removeFromCart(item.id)}
+                            style={styles.deleteButton}
+                          >
+                            <Feather
+                              name="trash-2"
+                              size={16}
+                              color={COLORS.red500}
+                            />
+                          </TouchableOpacity>
+                        </View>
                       </View>
                     </View>
                   </View>
                 </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
-
           {/* Voucher Section */}
           <View style={styles.voucherSection}>
             <TouchableOpacity

@@ -1,22 +1,22 @@
+import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { ComponentProps } from "react";
 import {
-  View,
+  Alert,
+  Image,
+  ScrollView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Image,
-  Alert,
-  Platform,
+  View,
 } from "react-native";
-import { Feather, Ionicons } from "@expo/vector-icons"; // Sử dụng Feather
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import { useLocalSearchParams } from "expo-router";
+
 // 💡 IMPORTS COMPONENTS & CONTEXTS
 import { Header } from "../components/Header";
-import { useOrders, Order } from "../context/OrderContext";
+import { useOrders } from "../context/OrderContext";
+import { getOrderById } from "./services/baserowApi";
 
 // --- Types & Config ---
 type Page = string;
@@ -119,32 +119,98 @@ interface OrderDetailPageProps {
 
 export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
   const { id } = useLocalSearchParams();
-  const orderId = id as string;
-  const { getOrderById, cancelOrder } = useOrders();
-  const order = getOrderById(orderId);
+  const orderId = id;
+  const { cancelOrder } = useOrders();
   console.log("Router ID received:", orderId);
-  console.log("Order data found in Context:", order);
   const insets = useSafeAreaInsets();
-  const router = useRouter(); // Sử dụng useRouter
+  const router = useRouter();
 
-  const headerHeight = 50 + insets.top;
+  const headerHeight = 10 + insets.top;
 
-  if (!order) {
-    return <Text style={styles.errorText}>Không tìm thấy đơn hàng</Text>;
+  const [order, setOrder] = React.useState<any>(null);
+  const [loading, setLoading] = React.useState(true);
+
+  React.useEffect(() => {
+    const loadOrder = async () => {
+      try {
+        setLoading(true);
+        const data = await getOrderById(Number(orderId));
+        console.log("Fetched Order Data:", data);
+
+        if (data.success) {
+          setOrder(data.data);
+        } else {
+          Alert.alert("Lỗi", "Không tải được thông tin đơn hàng");
+        }
+      } catch (error) {
+        console.error("Error loading order:", error);
+        Alert.alert("Lỗi", "Có lỗi xảy ra khi tải thông tin đơn hàng");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    if (orderId) {
+      loadOrder();
+    }
+  }, [orderId]);
+
+  if (loading) {
+    return (
+      <View style={styles.fullContainer}>
+        <Header title="Đơn hàng" showBack={true} onBack={goBack} />
+        <View style={styles.loadingContainer}>
+          <Text>Đang tải...</Text>
+        </View>
+      </View>
+    );
   }
 
-  const statusInfo = STATUS_CONFIG[order.status];
+  if (!order) {
+    return (
+      <View style={styles.fullContainer}>
+        <Header title="Đơn hàng" showBack={true} onBack={goBack} />
+        <Text style={styles.errorText}>Không tìm thấy đơn hàng</Text>
+      </View>
+    );
+  }
 
-  const formatDate = (date: Date) => {
-    // Sửa lỗi toLocaleDateString trong RN
-    return new Date(date).toLocaleString("vi-VN", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
+  // Xử lý trạng thái từ API (có thể là object hoặc string)
+  const statusValue =
+    typeof order.status === "object" ? order.status.value : order.status;
+  const statusInfo =
+    STATUS_CONFIG[statusValue as OrderStatus] || STATUS_CONFIG.pending;
+
+  const formatDate = () => {
+    // Nếu không có createdAt, tạo từ order name hoặc dùng thời gian hiện tại
+    const orderName = order.name || "";
+    const match = orderName.match(/ORD-(\d{8})/);
+
+    if (match) {
+      const dateStr = match[1];
+      const year = dateStr.substring(0, 4);
+      const month = dateStr.substring(4, 6);
+      const day = dateStr.substring(6, 8);
+      return `${day}/${month}/${year}`;
+    }
+
+    return new Date().toLocaleDateString("vi-VN");
   };
+
+  // Tính tổng tiền từ orderDetail
+  const calculateSubtotal = () => {
+    if (!order.orderDetail || !Array.isArray(order.orderDetail)) {
+      return 0;
+    }
+
+    return order.orderDetail.reduce((sum: number, item: any) => {
+      const itemTotal = parseFloat(item.total) || 0;
+      return sum + itemTotal;
+    }, 0);
+  };
+
+  const subtotal = calculateSubtotal();
+  const total = parseFloat(order.amount) || subtotal;
 
   const handleCancelOrder = () => {
     Alert.alert("Xác nhận Hủy", "Bạn có chắc muốn hủy đơn hàng này?", [
@@ -153,35 +219,40 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
         text: "Hủy Đơn",
         style: "destructive",
         onPress: () => {
-          cancelOrder(order.id);
-          goBack(); // Quay lại Orders list
+          if (cancelOrder) {
+            cancelOrder(order.id);
+          }
+          // router.replace({
+          //   pathname: "/(tabs)/orders",
+          // });
         },
       },
     ]);
   };
 
   const handleRepurchase = () => {
-    // Giả định logic mua lại (chuyển hướng tới Menu)
     router.push("/(tabs)/menu");
   };
 
   const handleRating = () => {
-    // Giả định chuyển hướng tới màn hình Đánh giá
-
     router.push({
-      pathname: "/Review", // Giả định tên route là /review.tsx
-      params: { orderId: order.id }, // Truyền ID qua params
+      pathname: "/Review",
+      params: { orderId: order.id },
     } as any);
   };
 
   return (
     <View style={styles.fullContainer}>
-      {/* 1. Header (Absolute position) */}
-      <Header title={`Đơn hàng #${order.id}`} showBack={true} onBack={goBack} />
+      {/* 1. Header */}
+      <Header
+        title={`Đơn hàng ${order.name}`}
+        showBack={true}
+        onBack={goBack}
+      />
 
       <ScrollView
         showsVerticalScrollIndicator={false}
-        style={{ paddingTop: headerHeight }} // Bù đắp chiều cao Header
+        style={{ paddingTop: headerHeight }}
       >
         <View style={styles.contentPadding}>
           {/* Order Status */}
@@ -194,22 +265,14 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                 <Text style={[styles.statusTitle, { color: statusInfo.color }]}>
                   {statusInfo.label}
                 </Text>
-                {order.estimatedTime &&
-                  ["pending", "confirmed", "preparing", "delivering"].includes(
-                    order.status
-                  ) && (
-                    <Text style={styles.estimatedTimeStatus}>
-                      Dự kiến: {order.estimatedTime}
-                    </Text>
-                  )}
               </View>
               <Text style={styles.statusEmoji}>
-                {order.status === "pending" && "⏳"}
-                {order.status === "confirmed" && "✅"}
-                {order.status === "preparing" && "👨‍🍳"}
-                {order.status === "delivering" && "🚚"}
-                {order.status === "completed" && "🎉"}
-                {order.status === "cancelled" && "❌"}
+                {statusValue === "pending" && "⏳"}
+                {statusValue === "confirmed" && "✅"}
+                {statusValue === "preparing" && "👨‍🍳"}
+                {statusValue === "delivering" && "🚚"}
+                {statusValue === "completed" && "🎉"}
+                {statusValue === "cancelled" && "❌"}
               </Text>
             </View>
           </View>
@@ -221,7 +284,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
             "preparing",
             "delivering",
             "completed",
-          ].includes(order.status) && (
+          ].includes(statusValue) && (
             <View style={styles.card}>
               <Text style={styles.timelineTitle}>Tiến trình đơn hàng</Text>
               <View style={styles.timelineList}>
@@ -248,22 +311,16 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                     icon: "check-circle",
                   },
                 ].map((step, index) => {
-                  const isCompleted =
-                    [
-                      "pending",
-                      "confirmed",
-                      "preparing",
-                      "delivering",
-                      "completed",
-                    ].indexOf(order.status) >= index;
-                  const isCurrent =
-                    [
-                      "pending",
-                      "confirmed",
-                      "preparing",
-                      "delivering",
-                      "completed",
-                    ][index] === order.status;
+                  const stepOrder = [
+                    "pending",
+                    "confirmed",
+                    "preparing",
+                    "delivering",
+                    "completed",
+                  ];
+                  const currentIndex = stepOrder.indexOf(statusValue);
+                  const isCompleted = currentIndex >= index;
+                  const isCurrent = step.status === statusValue;
 
                   return (
                     <View key={step.status} style={styles.timelineStep}>
@@ -317,19 +374,9 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                 />
                 <View>
                   <Text style={styles.infoLabel}>Địa chỉ</Text>
-                  <Text style={styles.infoValue}>{order.deliveryAddress}</Text>
-                </View>
-              </View>
-              <View style={styles.infoRow}>
-                <Feather
-                  name="phone"
-                  size={20}
-                  color={COLORS.emerald600}
-                  style={styles.infoIcon}
-                />
-                <View>
-                  <Text style={styles.infoLabel}>Số điện thoại</Text>
-                  <Text style={styles.infoValue}>{order.phone}</Text>
+                  <Text style={styles.infoValue}>
+                    {order.address?.value || "Đang cập nhật"}
+                  </Text>
                 </View>
               </View>
               <View style={styles.infoRow}>
@@ -342,11 +389,13 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                 <View>
                   <Text style={styles.infoLabel}>Phương thức thanh toán</Text>
                   <Text style={styles.infoValue}>
-                    {PAYMENT_METHODS[order.paymentMethod]}
+                    {PAYMENT_METHODS[order.method] ||
+                      order.method ||
+                      "Tiền mặt"}
                   </Text>
                 </View>
               </View>
-              {order.note && (
+              {order.notes && (
                 <View style={styles.infoRow}>
                   <Feather
                     name="file-text"
@@ -356,7 +405,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                   />
                   <View>
                     <Text style={styles.infoLabel}>Ghi chú</Text>
-                    <Text style={styles.infoValue}>{order.note}</Text>
+                    <Text style={styles.infoValue}>{order.notes}</Text>
                   </View>
                 </View>
               )}
@@ -367,35 +416,40 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
           <View style={styles.card}>
             <Text style={styles.cardTitle}>Chi tiết đơn hàng</Text>
             <View style={styles.itemsDetailList}>
-              {order.items.map((item, index) => (
-                <View key={index} style={styles.itemDetailRow}>
-                  <Image
-                    source={{ uri: item.image }}
-                    alt={item.name}
-                    style={styles.itemDetailImage}
-                  />
-                  <View style={styles.itemDetailInfo}>
-                    <Text style={styles.itemDetailName}>{item.name}</Text>
-                    <View style={styles.itemDetailOptions}>
-                      <Text style={styles.itemDetailOptionText}>
-                        Size: {item.size} • Đá: {item.ice}% • Đường:{" "}
-                        {item.sugar}%
+              {order.orderDetail?.map((item: any, index: number) => {
+                const price = parseFloat(item.price) || 0;
+                const quantity = parseInt(item.quantity) || 1;
+                const itemTotal = price * quantity;
+
+                return (
+                  <View key={item.id || index} style={styles.itemDetailRow}>
+                    <Image
+                      source={{ uri: item.product?.image }}
+                      alt={item.product?.image}
+                      style={styles.itemDetailImage}
+                    />
+                    <View style={styles.itemDetailInfo}>
+                      <Text style={styles.itemDetailName}>
+                        {item.product?.name || `Sản phẩm ${index + 1}`}
                       </Text>
-                      {item.toppings.length > 0 && (
-                        <Text style={styles.itemDetailOptionText}>
-                          Topping: {item.toppings.join(", ")}
-                        </Text>
+                      {item.is_drink && (
+                        <View style={styles.itemDetailOptions}>
+                          <Text style={styles.itemDetailOptionText}>
+                            Size: {item.size || "M"} • Đá: {item.ice || "0"}% •
+                            Đường: {item.sugar || "0"}%
+                          </Text>
+                        </View>
                       )}
                     </View>
+                    <View style={styles.itemDetailPriceQty}>
+                      <Text style={styles.itemDetailQty}>x{quantity}</Text>
+                      <Text style={styles.itemDetailPrice}>
+                        {itemTotal.toLocaleString("vi-VN")}đ
+                      </Text>
+                    </View>
                   </View>
-                  <View style={styles.itemDetailPriceQty}>
-                    <Text style={styles.itemDetailQty}>x{item.quantity}</Text>
-                    <Text style={styles.itemDetailPrice}>
-                      {(item.price * item.quantity).toLocaleString("vi-VN")}đ
-                    </Text>
-                  </View>
-                </View>
-              ))}
+                );
+              })}
             </View>
           </View>
 
@@ -406,18 +460,18 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Tạm tính</Text>
                 <Text style={styles.summaryValue}>
-                  {order.total.toLocaleString("vi-VN")}đ
+                  {subtotal.toLocaleString("vi-VN")}đ
                 </Text>
               </View>
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
                 <Text style={styles.summaryValueFree}>Miễn phí</Text>
               </View>
-              {order.discount && (
+              {order.voucher && (
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Giảm giá</Text>
                   <Text style={styles.summaryValueDiscount}>
-                    -{order.discount.toLocaleString("vi-VN")}đ
+                    -{(subtotal - total).toLocaleString("vi-VN")}đ
                   </Text>
                 </View>
               )}
@@ -425,13 +479,16 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryTotalLabel}>Tổng thanh toán</Text>
                 <Text style={styles.summaryTotalPrice}>
-                  {order.total.toLocaleString("vi-VN")}đ
+                  {total.toLocaleString("vi-VN")}đ
                 </Text>
               </View>
             </View>
             <View style={styles.summaryFooter}>
               <Text style={styles.summaryDateText}>
-                Đặt lúc: {formatDate(order.createdAt)}
+                Mã đơn hàng: {order.name || `ORD-${order.id}`}
+              </Text>
+              <Text style={styles.summaryDateText}>
+                Ngày đặt: {formatDate()}
               </Text>
             </View>
           </View>
@@ -442,7 +499,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
       </ScrollView>
 
       {/* Bottom Actions */}
-      {["pending", "confirmed"].includes(order.status) && (
+      {["pending", "confirmed"].includes(statusValue) && (
         <View
           style={[
             styles.bottomActionsContainer,
@@ -458,7 +515,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
         </View>
       )}
 
-      {order.status === "completed" && (
+      {statusValue === "completed" && (
         <View
           style={[
             styles.bottomActionsContainer,
@@ -490,10 +547,8 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
     </View>
   );
 }
+
 export default OrderDetailPage;
-// -----------------------------------------------------------
-// 💡 STYLE SHEET
-// -----------------------------------------------------------
 
 const styles = StyleSheet.create({
   fullContainer: {
@@ -506,7 +561,7 @@ const styles = StyleSheet.create({
   },
   contentPadding: {
     paddingHorizontal: 16,
-    paddingVertical: 16,
+    paddingVertical: 70,
   },
   // --- General Card Styles ---
   card: {
@@ -790,4 +845,20 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     zIndex: 1,
   },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: COLORS.bg,
+  },
+
+  // fullContainer: {
+  //   flex: 1,
+  //   backgroundColor: COLORS.bg,
+  // },
+  // errorText: {
+  //   padding: 20,
+  //   color: COLORS.red500,
+  //   textAlign: 'center',
+  // },
 });

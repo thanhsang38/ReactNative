@@ -1,8 +1,7 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import { LinearGradient } from "expo-linear-gradient";
 import { router } from "expo-router";
-import { StyleSheet } from "react-native";
-
 import React, { useEffect, useRef, useState } from "react";
 import {
   Animated,
@@ -10,6 +9,7 @@ import {
   Easing,
   Image,
   PanResponder,
+  StyleSheet,
   Text,
   TouchableOpacity,
   View,
@@ -91,7 +91,10 @@ export default function IntroScreen() {
   const bounceAnim = useRef(new Animated.Value(0)).current; // nhảy lên xuống
   const waveScale = useRef(new Animated.Value(0)).current; // vòng sóng scale
   const waveOpacity = useRef(new Animated.Value(1)).current;
-
+  const finishIntro = async () => {
+    await AsyncStorage.setItem("hasSeenIntro", "true");
+    router.replace("/App");
+  };
   useEffect(() => {
     // Slide animation
     Animated.timing(translateX, {
@@ -185,7 +188,7 @@ export default function IntroScreen() {
     <View style={styles.container}>
       {/* Skip */}
       <Animated.View style={[styles.skipWrapper, { opacity: skipOpacity }]}>
-        <TouchableOpacity onPress={goToApp} style={styles.skipBtn}>
+        <TouchableOpacity onPress={finishIntro} style={styles.skipBtn}>
           <Text style={styles.skipText}>Bỏ qua</Text>
         </TouchableOpacity>
       </Animated.View>
@@ -255,7 +258,7 @@ export default function IntroScreen() {
       <TouchableOpacity
         onPress={() =>
           currentSlide === introSlides.length - 1
-            ? goToApp()
+            ? finishIntro()
             : setCurrentSlide(currentSlide + 1)
         }
         style={styles.nextBtn}

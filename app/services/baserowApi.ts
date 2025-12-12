@@ -32,16 +32,71 @@ export interface CategoryRow {
   image: string; // ✅ FIX: Tên cột Icon/Emoji (Cột image)
   category_id: string; // ID dùng để lọc sản phẩm (Giả định là name hoặc ID Baserow)
 }
+export interface AddressRow {
+  id: number;
+  is_default: boolean;
+  address: string;
+  type: string; // home, work, other
+  user: [{ id: number }] | []; // Foreign key to user (UserRow ID)
+}
+
+export interface OrderCartItem {
+  productId: string;
+  name: string;
+  image: string;
+  price: number;
+  quantity: number;
+  size: string; // ✅ Cần cột này trong OrderDetail
+  ice: number; // ✅ Cần cột này trong OrderDetail
+  sugar: number; // ✅ Cần cột này trong OrderDetail
+  isDrink: boolean; // ✅ Cần cột này trong OrderDetail
+}
+export interface OrderDetailRow {
+  id: number;
+  quantity: number;
+  price: number; // Price unit
+  total: number; // quantity * price
+  Product: [{ id: number }]; // Link to Product Table
+  orders: [{ id: number }]; // Link back to Orders Table
+  size?: string;
+  ice?: number;
+  sugar?: number;
+  is_drink?: boolean;
+}
+
+export interface OrderRow {
+  id: number;
+  name?: string;
+  notes?: string | null;
+  status:
+    | "pending"
+    | "confirmed"
+    | "preparing"
+    | "delivering"
+    | "completed"
+    | "cancelled";
+  amount: number; // total
+  method: string; // payment_method
+  address: [{ id: number; address: string }] | [];
+  user: [{ id: number }];
+  orderDetail: [{ id: number }] | []; // Link to OrderDetails
+  voucher: [{ id: number; name: string }] | []; // Bao gồm tên Voucher
+}
+
 interface BaserowListResponse<T> {
   count: number;
   next: string | null;
   previous: string | null;
   results: T[];
 }
+// -------------------------------------------------------------
 const USERS_TABLE_ID = 760467;
 const PRODUCTS_TABLE_ID = 760465;
 const CATEGORIES_TABLE_ID = 760466;
-
+const USER_ADDRESSES_TABLE_ID = 768059;
+const ORDERS_TABLE_ID = 760468;
+const ORDER_DETAILS_TABLE_ID = 760469;
+// -------------------------------------------------------------
 const normalizeCategoryName = (name: string): string => {
   if (!name) return "";
   // Chuyển tiếng Việt có dấu thành không dấu, chuyển sang chữ thường, thay thế khoảng trắng bằng _
@@ -387,6 +442,7 @@ export const getProductById = async (
     throw new Error("Không thể tải chi tiết sản phẩm.");
   }
 };
+
 export const getAllProductsForRelated = async (): Promise<ProductRow[]> => {
   // Lấy tối đa 5000 bản ghi (hoặc max limit Baserow cho phép)
   const endpoint = `${PRODUCTS_TABLE_ID}/?user_field_names=true&limit=5000`;
@@ -454,5 +510,342 @@ export const getCategories = async (): Promise<{
     }
 
     return { success: false, message: detailMessage };
+  }
+};
+// -------------------------------------------------------------
+// TẠO ĐỊA CHỈ MỚI CHO NGƯỜI DÙNG
+// -------------------------------------------------------------
+export const createAddress = async (
+  userId: number,
+  addressData: { address: string; type: string } // ✅ Đã xóa phone
+): Promise<{ success: boolean; data?: AddressRow; message?: string }> => {
+  // Tên cột Baserow là 'name', 'address', 'type', và 'user' (cho FK)
+  const payload = {
+    address: addressData.address,
+    type: addressData.type,
+    is_default: false,
+    user: [userId],
+  };
+
+  const endpoint = `${USER_ADDRESSES_TABLE_ID}/?user_field_names=true`;
+
+  try {
+    const response: AddressRow = await axiosClient.post(endpoint, payload);
+    return { success: true, data: response };
+  } catch (error: any) {
+    console.error("❌ [CREATE ADDRESS ERROR]", error.response?.data || error);
+
+    let detailMessage = "Lỗi hệ thống khi tạo địa chỉ.";
+    if (error.response?.data?.error) {
+      detailMessage = `Lỗi Baserow: ${error.response.data.error}`;
+    }
+
+    return { success: false, message: detailMessage };
+  }
+};
+export const getAddresses = async (
+  userId: number
+): Promise<{ success: boolean; data?: AddressRow[]; message?: string }> => {
+  const filters = JSON.stringify({
+    filter_type: "AND",
+    filters: [
+      {
+        type: "link_row_has",
+        field: "user", // 👉 tên field trong bảng address
+        value: userId.toString(),
+      },
+    ],
+  });
+
+  const endpoint = `${USER_ADDRESSES_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
+    filters
+  )}`;
+
+  console.log(`DEBUG: Address API URL for READ: ${endpoint}`);
+
+  try {
+    const response: BaserowListResponse<AddressRow> = await axiosClient.get(
+      endpoint
+    );
+    return { success: true, data: response.results };
+  } catch (error: any) {
+    console.error("❌ [GET ADDRESSES ERROR]", error.response?.data || error);
+    return { success: false, message: "Không thể tải danh sách địa chỉ." };
+  }
+};
+
+export const updateAddress = async (
+  addressId: number,
+  // Payload cho phép cập nhật address, type, và is_default
+  data: { address?: string; type?: string; is_default?: boolean }
+): Promise<{ success: boolean; data?: AddressRow; message?: string }> => {
+  const cleanedData = cleanPayload(data); // Loại bỏ các trường null/undefined
+
+  if (Object.keys(cleanedData).length === 0) {
+    return { success: false, message: "Không có dữ liệu để cập nhật." };
+  }
+
+  const endpoint = `${USER_ADDRESSES_TABLE_ID}/${addressId}/?user_field_names=true`;
+
+  try {
+    // Dùng PATCH để cập nhật một phần
+    const response: AddressRow = await axiosClient.patch(endpoint, cleanedData);
+    return { success: true, data: response };
+  } catch (error: any) {
+    console.error("❌ [UPDATE ADDRESS ERROR]", error.response?.data || error);
+    return { success: false, message: "Không thể cập nhật địa chỉ." };
+  }
+};
+export const deleteAddress = async (
+  addressId: number
+): Promise<{ success: boolean; message?: string }> => {
+  const endpoint = `${USER_ADDRESSES_TABLE_ID}/${addressId}/?user_field_names=true`;
+
+  try {
+    await axiosClient.delete(endpoint);
+    return { success: true };
+  } catch (error: any) {
+    console.error("❌ [DELETE ADDRESS ERROR]", error.response?.data || error);
+    return { success: false, message: "Không thể xóa địa chỉ." };
+  }
+};
+// -------------------------------------------------------------
+// Bảng đơn hàng và chi tiết đơn hàng
+// -------------------------------------------------------------
+export const createOrder = async (
+  userId: number,
+  orderData: {
+    items: OrderCartItem[];
+    total: number;
+    deliveryAddressId: number;
+    paymentMethod: string;
+    note?: string;
+    estimatedTime?: string;
+    voucherId?: number;
+  }
+): Promise<{ success: boolean; data?: OrderRow; message?: string }> => {
+  // 1. CHUẨN BỊ PAYLOAD CHO ORDER HEADER
+  const orderHeaderPayload = {
+    name: `ORD-${new Date()
+      .toISOString()
+      .replace(/[-:T.]/g, "")
+      .slice(0, 14)}-${Math.floor(Math.random() * 1000)}-${userId}`,
+    notes: orderData.note || null,
+    status: "pending", // Default status
+    amount: orderData.total,
+    method: orderData.paymentMethod,
+    address: [orderData.deliveryAddressId],
+    estimated_time: orderData.estimatedTime || null, // Vẫn giữ estimated_time nếu bạn muốn
+    voucher: orderData.voucherId ? [orderData.voucherId] : [],
+    user: [userId],
+  };
+
+  const orderEndpoint = `${ORDERS_TABLE_ID}/?user_field_names=true`;
+
+  try {
+    // 2. TẠO ORDER HEADER
+    const orderResponse: OrderRow = await axiosClient.post(
+      orderEndpoint,
+      cleanPayload(orderHeaderPayload)
+    );
+    const newOrderId = orderResponse.id;
+
+    // 3. TẠO ORDER DETAIL ITEMS
+    const detailPromises = orderData.items.map((item) => {
+      const productIdNumber = Number(item.productId);
+
+      const detailPayload = {
+        quantity: item.quantity,
+        price: Number(item.price),
+        total: item.quantity * Number(item.price),
+        size: item.size,
+        ice: item.ice,
+        sugar: item.sugar,
+        is_drink: item.isDrink,
+        Product: [productIdNumber], // Liên kết đến sản phẩm
+        orders: [newOrderId], // Liên kết đến Order Header vừa tạo
+      };
+
+      const detailEndpoint = `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true`;
+      return axiosClient.post(detailEndpoint, cleanPayload(detailPayload));
+    });
+
+    await Promise.all(detailPromises);
+
+    // 4. Trả về Order Header đã tạo
+    return { success: true, data: orderResponse };
+  } catch (error: any) {
+    console.error("❌ [CREATE ORDER ERROR]", error.response?.data || error);
+
+    return {
+      success: false,
+      message: "Không thể tạo đơn hàng (Lỗi Header hoặc Details).",
+    };
+  }
+};
+
+/**
+ * ✅ FIX: Lấy danh sách Đơn hàng theo User ID
+ */
+export const getOrders = async (
+  userId: number
+): Promise<{ success: boolean; data?: OrderRow[]; message?: string }> => {
+  const filters = JSON.stringify({
+    filter_type: "AND",
+    filters: [
+      {
+        type: "link_row_has",
+        field: "user", // 👉 sửa đúng tên cột link row của bạn
+        value: userId.toString(),
+      },
+    ],
+  });
+
+  const endpoint = `${ORDERS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
+    filters
+  )}`;
+  try {
+    const response: BaserowListResponse<OrderRow> = await axiosClient.get(
+      endpoint
+    );
+    console.log("getOrders", response);
+    return { success: true, data: response.results };
+  } catch (error: any) {
+    console.error("❌ [GET ORDERS ERROR]", error.response?.data || error);
+    return { success: false, message: "Không thể tải danh sách đơn hàng." };
+  }
+};
+
+/**
+ * ⭐ Lấy chi tiết 1 đơn hàng theo ID
+ */
+export const getOrderById = async (
+  orderId: number
+): Promise<{ success: boolean; data?: any; message?: string }> => {
+  try {
+    // 1. Lấy Order header
+    const orderEndpoint = `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`;
+    const orderRes = await axiosClient.get(orderEndpoint);
+
+    if (!orderRes || !orderRes.id) {
+      return { success: false, message: "Không tìm thấy đơn hàng." };
+    }
+
+    // 2. Query OrderDetail theo orderId
+    const filters = JSON.stringify({
+      filter_type: "AND",
+      filters: [
+        {
+          type: "link_row_has",
+          field: "orders",
+          value: orderId.toString(),
+        },
+      ],
+    });
+
+    const detailEndpoint = `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
+      filters
+    )}`;
+
+    const detailsRes = await axiosClient.get<
+      BaserowListResponse<OrderDetailRow>
+    >(detailEndpoint);
+
+    const details = detailsRes.results || [];
+
+    // 3. Lấy các product liên quan
+    const productIds = details.map((d) => d.Product?.[0]?.id).filter(Boolean);
+
+    const uniqueProductIds = [...new Set(productIds)];
+    let productMap: Record<number, ProductRow> = {};
+
+    if (uniqueProductIds.length > 0) {
+      const productResults = await Promise.all(
+        uniqueProductIds.map((pid) => getProductById(pid))
+      );
+
+      productResults.forEach((p) => {
+        if (p?.id) productMap[p.id] = p;
+      });
+    }
+
+    // 4. Gộp detail + product
+    const mergedDetails = details.map((item) => {
+      const pid = item.Product?.[0]?.id;
+      return {
+        id: item.id,
+        quantity: item.quantity,
+        price: item.price,
+        total: item.total,
+        size: item.size,
+        ice: item.ice,
+        sugar: item.sugar,
+        is_drink: item.is_drink,
+        product: productMap[pid] || null,
+      };
+    });
+
+    // 5. Chuẩn hoá dữ liệu trả về
+    const normalizedOrder = {
+      id: orderRes.id,
+      name: orderRes.name,
+      notes: orderRes.notes,
+      status: orderRes.status,
+      amount: orderRes.amount,
+      method: orderRes.method,
+      user: orderRes.user?.[0]?.id || null,
+      address: orderRes.address?.[0] || null,
+      voucher: orderRes.voucher?.[0] || null,
+      orderDetail: mergedDetails,
+    };
+
+    return {
+      success: true,
+      data: normalizedOrder,
+    };
+  } catch (error: any) {
+    console.error("❌ [GET ORDER BY ID ERROR]", error.response?.data || error);
+
+    return {
+      success: false,
+      message: "Không thể tải chi tiết đơn hàng.",
+    };
+  }
+};
+
+export const getOrderDetails = async (
+  orderId: number
+): Promise<{ success: boolean; data?: OrderDetailRow[]; message?: string }> => {
+  const endpoint = `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true&filter__orders=${orderId}`;
+  try {
+    const response: BaserowListResponse<OrderDetailRow> = await axiosClient.get(
+      endpoint
+    );
+    return { success: true, data: response.results };
+  } catch (error: any) {
+    console.error(
+      "❌ [GET ORDER DETAILS ERROR]",
+      error.response?.data || error
+    );
+    return { success: false, message: "Không thể tải chi tiết đơn hàng." };
+  }
+};
+// CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG HOẶC CÁC TRƯỜNG KHÁC
+export const updateOrder = async (
+  orderId: number,
+  data: Partial<OrderRow>
+): Promise<{ success: boolean; data?: OrderRow; message?: string }> => {
+  const cleanedData = cleanPayload(data);
+
+  if (Object.keys(cleanedData).length === 0) {
+    return { success: false, message: "Không có dữ liệu để cập nhật." };
+  }
+  const endpoint = `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`;
+  try {
+    const response: OrderRow = await axiosClient.patch(endpoint, cleanedData);
+    return { success: true, data: response };
+  } catch (error: any) {
+    console.error("❌ [UPDATE ORDER ERROR]", error.response?.data || error);
+    return { success: false, message: "Không thể cập nhật đơn hàng." };
   }
 };

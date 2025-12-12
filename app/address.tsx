@@ -1,26 +1,29 @@
-import React, { useState, ComponentProps } from "react";
+import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient"; // Cần LinearGradient cho nút Submit
+import React, { ComponentProps, useEffect, useState } from "react";
+import { SubmitHandler, useForm } from "react-hook-form"; // 💡 IMPORT useForm
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  Image,
-  Dimensions,
-  Platform,
   Alert,
-  Modal,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { Feather, Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { useForm, SubmitHandler } from "react-hook-form"; // 💡 IMPORT useForm
-import { LinearGradient } from "expo-linear-gradient"; // Cần LinearGradient cho nút Submit
 
 // 💡 IMPORTS COMPONENTS & CONTEXTS
 import { Header } from "../components/Header";
-
+import { useAuth } from "../context/AuthContext";
+import {
+  AddressRow,
+  createAddress,
+  deleteAddress,
+  getAddresses,
+  updateAddress,
+} from "./services/baserowApi";
 // --- Types & Data ---
 type FeatherIconName = ComponentProps<typeof Feather>["name"];
 
@@ -28,19 +31,14 @@ interface AddressPageProps {
   goBack: () => void;
   navigateTo: (page: string) => void;
 }
-
-interface Address {
-  id: string;
-  type: "home" | "work" | "other";
-  name: string;
-  phone: string;
-  address: string;
-  isDefault: boolean;
+interface Address extends Omit<AddressRow, "id" | "user" | "name"> {
+  id: string; // Chuyển sang string cho key
+  name: string; // ✅ FIX: Tên người dùng lấy từ User Context
+  phone: string; // Lấy từ user.phone
+  isDefault: boolean; // Dùng cờ isDefault client-side
 }
 
 interface AddressFormData {
-  name: string;
-  phone: string;
   address: string;
   type: "home" | "work" | "other";
 }
@@ -76,28 +74,71 @@ const COLORS = {
 // -----------------------------------------------------------
 
 export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
-  const [addresses, setAddresses] = useState<Address[]>([
-    {
-      id: "1",
-      type: "home",
-      name: "Nguyễn Văn A",
-      phone: "0901234567",
-      address: "123 Nguyễn Huệ, Quận 1, TP.HCM",
-      isDefault: true,
-    },
-    {
-      id: "2",
-      type: "work",
-      name: "Nguyễn Văn A",
-      phone: "0901234567",
-      address: "456 Lê Lợi, Quận 1, TP.HCM",
-      isDefault: false,
-    },
-  ]);
-
+  const { user } = useAuth();
+  const [addresses, setAddresses] = useState<Address[]>([]);
   const [showAddForm, setShowAddForm] = useState(false);
   const insets = useSafeAreaInsets();
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
+  const [editingAddress, setEditingAddress] = useState<AddressFormData | null>(
+    null
+  ); // State cho dữ liệu Baserow gốc
+  const [editingId, setEditingId] = useState<string | null>(null); // ID của địa chỉ đang chỉnh sửa
+  const fetchAddresses = async () => {
+    if (!user || !user.id) return;
 
+    setIsLoading(true);
+    try {
+      const result = await getAddresses(user.id);
+      if (result.success && result.data) {
+        // Map dữ liệu Baserow sang cấu trúc Address cục bộ
+        const mappedAddresses: Address[] = result.data.map((addr, index) => ({
+          ...addr,
+          id: addr.id.toString(),
+          name: user.name || "Người dùng",
+          phone: user.phone || "N/A", // Lấy phone từ User Context
+          // ✅ FIX: Gán mặc định là TRUE cho địa chỉ đầu tiên nếu không có cờ status từ Baserow
+          isDefault: addr.is_default || false, // Cần hàm updateAddress API để lưu trạng thái này lên Baserow
+        }));
+        const defaultAddress = mappedAddresses.find((addr) => addr.isDefault);
+        if (mappedAddresses.length > 0 && !defaultAddress) {
+          // Sắp xếp theo ID (tạo sớm nhất)
+          mappedAddresses.sort((a, b) => Number(a.id) - Number(b.id));
+          const oldestAddress = mappedAddresses[0];
+
+          // Cập nhật lên Baserow (Nếu có lỗi ở đây, UI vẫn tiếp tục)
+          await updateAddress(Number(oldestAddress.id), { is_default: true });
+
+          // Cập nhật trạng thái cục bộ
+          mappedAddresses[0].isDefault = true;
+        }
+        mappedAddresses.sort(
+          (a, b) => (b.isDefault as any) - (a.isDefault as any)
+        );
+
+        setAddresses(mappedAddresses);
+      } else {
+        setAddresses([]);
+      }
+    } catch (e) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi Tải",
+        text2: "Không thể tải địa chỉ từ server.",
+        visibilityTime: 3000,
+      });
+      setAddresses([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (user && user.id) {
+      fetchAddresses();
+    } else {
+      setIsLoading(false);
+    }
+  }, [user?.id]);
   // 💡 FORM HOOKS
   const {
     register,
@@ -107,7 +148,13 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
     setValue,
     formState: { errors },
   } = useForm<AddressFormData>({ defaultValues: { type: "home" } });
-
+  useEffect(() => {
+    if (editingAddress) {
+      setValue("address", editingAddress.address);
+      setValue("type", editingAddress.type as "home" | "work" | "other");
+      setShowAddForm(true);
+    }
+  }, [editingAddress, setValue]);
   // 💡 HÀM TOAST
   const showSuccessToast = (message: string) => {
     Toast.show({
@@ -119,56 +166,155 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
     });
   };
 
-  const deleteAddress = (id: string) => {
+  const deleteAddressApi = (id: string) => {
     Alert.alert("Xác nhận Xóa", "Bạn có chắc muốn xóa địa chỉ này?", [
       { text: "Hủy", style: "cancel" },
       {
         text: "Xóa",
         style: "destructive",
-        onPress: () => {
-          setAddresses((prev) => prev.filter((addr) => addr.id !== id));
-          showSuccessToast("Đã xóa địa chỉ");
+        onPress: async () => {
+          setIsSubmitting(true);
+          try {
+            // Gọi API xóa
+            const result = await deleteAddress(Number(id));
+            if (result.success) {
+              showSuccessToast("Đã xóa địa chỉ");
+              fetchAddresses(); // Tải lại danh sách
+            } else {
+              Toast.show({
+                type: "error",
+                text1: "Lỗi xóa",
+                text2: result.message || "Không thể xóa địa chỉ.",
+                visibilityTime: 3000,
+              });
+            }
+          } catch (e) {
+            Toast.show({
+              type: "error",
+              text1: "Lỗi hệ thống",
+              text2: "Lỗi mạng hoặc server.",
+            });
+          } finally {
+            setIsSubmitting(false);
+          }
         },
       },
     ]);
   };
 
-  const setDefaultAddress = (id: string) => {
-    setAddresses((prev) =>
-      prev.map((addr) => ({
-        ...addr,
-        isDefault: addr.id === id,
-      }))
-    );
-    showSuccessToast("Đã đặt làm địa chỉ mặc định");
+  const handleEdit = (address: Address) => {
+    setEditingId(address.id);
+    // ✅ FIX: Set editingAddress bằng dữ liệu Baserow (AddressRow)
+    setEditingAddress({
+      address: address.address,
+      type: address.type as "home" | "work" | "other",
+    });
+    setShowAddForm(true);
   };
 
+  const setDefaultAddress = async (id: string) => {
+    if (!user || !user.id || isSubmitting) return;
+
+    setIsSubmitting(true);
+
+    try {
+      // 1. Gửi yêu cầu cập nhật tất cả các địa chỉ về false, TRỪ địa chỉ đang chọn
+      const updatePromises = addresses.map((addr) => {
+        const isTarget = addr.id === id;
+        if (addr.isDefault === isTarget) {
+          // Không cần cập nhật nếu trạng thái hiện tại đúng với trạng thái mong muốn
+          return Promise.resolve();
+        }
+
+        // Gọi API cập nhật is_default
+        return updateAddress(Number(addr.id), { is_default: isTarget });
+      });
+
+      await Promise.all(updatePromises);
+
+      showSuccessToast("Địa chỉ đã được đặt mặc định.");
+      fetchAddresses(); // Tải lại danh sách để đồng bộ hóa Client/Server
+    } catch (error) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi",
+        text2: "Không thể đặt địa chỉ mặc định trên server.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
   // 💡 HÀM THÊM ĐỊA CHỈ MỚI
-  const handleAddAddress: SubmitHandler<AddressFormData> = (data) => {
-    const newAddress: Address = {
-      id: String(Date.now()), // Dùng timestamp làm ID mới
-      type: data.type,
-      name: data.name,
-      phone: data.phone,
+  const handleAddOrUpdateAddress: SubmitHandler<AddressFormData> = async (
+    data
+  ) => {
+    if (!user || !user.id || !user.phone || !user.name) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi",
+        text2: "Vui lòng đăng nhập và đảm bảo có đủ thông tin (Tên/SĐT).",
+        visibilityTime: 3000,
+      });
+      return;
+    }
+
+    setIsSubmitting(true);
+
+    const apiData = {
       address: data.address,
-      isDefault: false,
+      type: data.type,
     };
-    setAddresses((prev) => [newAddress, ...prev]);
-    reset();
-    setShowAddForm(false);
-    showSuccessToast("Đã thêm địa chỉ mới");
+
+    try {
+      if (editingId) {
+        // Trường hợp 1: CẬP NHẬT (Update)
+        const result = await updateAddress(Number(editingId), apiData);
+
+        if (result.success) {
+          showSuccessToast("Cập nhật địa chỉ thành công!");
+        } else {
+          Toast.show({
+            type: "error",
+            text1: "Lỗi API",
+            text2: result.message || "Không thể cập nhật địa chỉ.",
+            visibilityTime: 3000,
+          });
+        }
+      } else {
+        // Trường hợp 2: THÊM MỚI (Create)
+        const result = await createAddress(user.id, apiData);
+
+        if (result.success) {
+          showSuccessToast("Đã thêm địa chỉ mới thành công!");
+        } else {
+          Toast.show({
+            type: "error",
+            text1: "Lỗi API",
+            text2: result.message || "Không thể lưu địa chỉ lên máy chủ.",
+            visibilityTime: 3000,
+          });
+        }
+      }
+
+      // Hoàn tất: Reset form và tải lại danh sách
+      reset();
+      setShowAddForm(false);
+      setEditingId(null);
+      setEditingAddress(null);
+      fetchAddresses();
+    } catch (e: any) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi hệ thống",
+        text2: "Đã xảy ra lỗi không xác định.",
+      });
+    } finally {
+      setIsSubmitting(false);
+    }
   };
 
   // Đăng ký fields cho Form
   React.useEffect(() => {
-    register("name", { required: "Vui lòng nhập họ tên" });
-    register("phone", {
-      required: "Vui lòng nhập số điện thoại",
-      pattern: {
-        value: /^(0|\+84)[0-9]{9,10}$/,
-        message: "Số điện thoại không hợp lệ",
-      },
-    });
     register("address", { required: "Vui lòng nhập địa chỉ" });
     register("type");
   }, [register]);
@@ -277,9 +423,8 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
 
                   {/* Name */}
                   <View style={styles.formField}>
-                    <Text style={styles.label}>
-                      Họ và tên <Text style={styles.requiredText}>*</Text>
-                    </Text>
+                    <Text style={styles.label}>Họ và tên</Text>
+
                     <View style={styles.inputWrapper}>
                       <Feather
                         name="user"
@@ -287,22 +432,19 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
                         color={COLORS.slate400}
                         style={styles.icon}
                       />
+
                       <TextInput
-                        onChangeText={(text) =>
-                          setValue("name", text, { shouldValidate: true })
-                        }
+                        // ✅ FIX: Chỉ hiển thị, không cho chỉnh sửa
+                        editable={false}
+                        defaultValue={user?.name}
                         placeholder="Nguyễn Văn A"
-                        style={[styles.input, errors.name && styles.inputError]}
+                        style={[styles.input, { opacity: 0.7 }]} // Làm mờ để người dùng biết không chỉnh được
                       />
                     </View>
-                    {renderError("name")}
                   </View>
 
-                  {/* Phone */}
                   <View style={styles.formField}>
-                    <Text style={styles.label}>
-                      Số điện thoại <Text style={styles.requiredText}>*</Text>
-                    </Text>
+                    <Text style={styles.label}>Số điện thoại</Text>
                     <View style={styles.inputWrapper}>
                       <Feather
                         name="phone"
@@ -311,18 +453,12 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
                         style={styles.icon}
                       />
                       <TextInput
-                        onChangeText={(text) =>
-                          setValue("phone", text, { shouldValidate: true })
-                        }
+                        editable={false} // ✅ FIX: Chỉ hiển thị
+                        defaultValue={user?.phone}
                         placeholder="0901234567"
-                        keyboardType="phone-pad"
-                        style={[
-                          styles.input,
-                          errors.phone && styles.inputError,
-                        ]}
+                        style={[styles.input, { opacity: 0.7 }]} // Làm mờ
                       />
                     </View>
-                    {renderError("phone")}
                   </View>
 
                   {/* Address */}
@@ -338,6 +474,7 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
                         style={styles.iconArea}
                       />
                       <TextInput
+                        defaultValue={editingAddress?.address}
                         onChangeText={(text) =>
                           setValue("address", text, { shouldValidate: true })
                         }
@@ -367,7 +504,7 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
                     </TouchableOpacity>
 
                     <TouchableOpacity
-                      onPress={handleSubmit(handleAddAddress)}
+                      onPress={handleSubmit(handleAddOrUpdateAddress)}
                       style={styles.saveFormButton}
                     >
                       <LinearGradient
@@ -423,9 +560,10 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
 
                     {/* Delete Button */}
                     <TouchableOpacity
-                      onPress={() => deleteAddress(address.id)}
+                      onPress={() => deleteAddressApi(address.id)} // ✅ SỬ DỤNG HÀM DELETE API
                       style={styles.deleteButton}
                       activeOpacity={0.8}
+                      disabled={isSubmitting}
                     >
                       <Feather name="trash-2" size={16} color={COLORS.red500} />
                     </TouchableOpacity>
@@ -454,9 +592,7 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
                   <View style={styles.actionButtonsRow}>
                     <TouchableOpacity
                       style={[styles.actionButton, styles.actionEdit]}
-                      onPress={() =>
-                        Alert.alert("Chức năng", "Chỉnh sửa địa chỉ")
-                      }
+                      onPress={() => handleEdit(address)}
                     >
                       <Text style={styles.actionEditText}>Chỉnh sửa</Text>
                     </TouchableOpacity>

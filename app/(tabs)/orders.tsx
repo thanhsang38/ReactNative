@@ -1,22 +1,26 @@
-import React, { useState, ComponentProps } from "react";
+import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router";
+import React, { useEffect, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  FlatList,
+  Image,
+  ScrollView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  FlatList,
-  Dimensions,
-  Image,
-  Platform,
+  View,
 } from "react-native";
-import { Feather, Ionicons, MaterialCommunityIcons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
-import { LinearGradient } from "expo-linear-gradient";
 // 💡 Cần import Header và useOrders từ đúng đường dẫn
 import { Header } from "../../components/Header";
-import { useOrders, Order } from "../../context/OrderContext";
+import { useAuth } from "../../context/AuthContext";
+import {
+  Order,
+  fetchOrdersWithDetails,
+  useOrders,
+} from "../../context/OrderContext";
 
 // --- Constants và Types ---
 type Page = string;
@@ -109,38 +113,52 @@ const STATUS_CONFIG: {
   }, // XCircle -> Feather
 };
 
-interface OrdersPageProps {
-  // navigateTo đã được thay thế bằng useRouter
-}
-
 export function OrdersPage() {
-  const { orders } = useOrders();
-  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const { cancelOrder } = useOrders(); // ✅ CHỈ LẤY CÁC HÀM THAO TÁC
+  const { user } = useAuth(); // ✅ LẤY USER IDconst [filter, setFilter] = useState<"all" | "active" | "completed">("all");
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const headerHeight = 60 + insets.top;
+  const [orders, setOrders] = useState<Order[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
+
+  const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const FILTER_TABS = [
+    { id: "all", label: "Tất cả" },
+    ...Object.keys(STATUS_CONFIG).map((key) => ({
+      id: key,
+      label: STATUS_CONFIG[key as OrderStatus].label,
+    })),
+  ];
+
+  const loadOrders = async () => {
+    if (!user || !user.id) return;
+    setIsLoading(true);
+    try {
+      // ✅ GỌI HÀM FETCH EXPORTED TỪ CONTEXT/API
+      const fetchedOrders = await fetchOrdersWithDetails(user.id);
+      console.log("ĐƠN HÀNG TẢI VỀ:", fetchedOrders);
+      setOrders(fetchedOrders);
+    } catch (e) {
+      console.error("LỖI TẢI ĐƠN HÀNG TRONG UI:", e);
+      setOrders([]);
+    } finally {
+      setIsLoading(false);
+    }
+  };
+  useEffect(() => {
+    if (user && user.id) {
+      loadOrders();
+    } else {
+      setOrders([]);
+      setIsLoading(false);
+    }
+  }, [user?.id]);
 
   const filteredOrders = orders.filter((order) => {
     if (filter === "all") return true;
-    if (filter === "active")
-      return ["pending", "confirmed", "preparing", "delivering"].includes(
-        order.status
-      );
-    if (filter === "completed")
-      return ["completed", "cancelled"].includes(order.status);
-    return true;
+    return order.status === filter;
   });
-
-  const formatDate = (date: Date) => {
-    // 💡 SỬA LỖI: RN không hỗ trợ toLocaleDateString theo cách này
-    return new Date(date).toLocaleString("vi-VN", {
-      day: "2-digit",
-      month: "2-digit",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-    });
-  };
 
   const handleNavigateToDetail = (orderId: string) => {
     // 💡 Dùng router.push để điều hướng đến màn hình chi tiết
@@ -153,7 +171,14 @@ export function OrdersPage() {
   const handleNavigateToMenu = () => {
     router.push("/(tabs)/menu");
   };
-
+  if (isLoading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color="#059669" />
+        <Text style={styles.loadingText}>Đang tải ứng dụng...</Text>
+      </View>
+    );
+  }
   // -------------------------------------------------------------------
   // RENDER ITEM CARD
   // -------------------------------------------------------------------
@@ -171,7 +196,7 @@ export function OrdersPage() {
         {/* Order Header */}
         <View style={styles.orderHeaderRow}>
           <View style={styles.orderStatusWrapper}>
-            <Text style={styles.orderIdText}>#{order.id}</Text>
+            <Text style={styles.orderIdText}>#{order.name}</Text>
             <View
               style={[styles.statusTag, { backgroundColor: statusInfo.bg }]}
             >
@@ -185,9 +210,6 @@ export function OrdersPage() {
               </Text>
             </View>
           </View>
-          <Text style={styles.orderDateText}>
-            {formatDate(order.createdAt)}
-          </Text>
         </View>
 
         {/* Order Items Preview */}
@@ -214,27 +236,13 @@ export function OrdersPage() {
             </Text>
           )}
         </View>
-
         {/* Order Footer */}
         <View style={styles.orderFooter}>
           <Text style={styles.totalLabel}>Tổng cộng:</Text>
           <Text style={styles.totalPrice}>
-            {order.total.toLocaleString("vi-VN")}đ
+            {Number(order.total).toLocaleString("vi-VN")}đ
           </Text>
         </View>
-
-        {/* Estimated Time for Active Orders */}
-        {order.estimatedTime &&
-          ["pending", "confirmed", "preparing", "delivering"].includes(
-            order.status
-          ) && (
-            <View style={styles.estimatedTimeWrapper}>
-              <Feather name="clock" size={16} color={COLORS.amber600} />
-              <Text style={styles.estimatedTimeText}>
-                Dự kiến: {order.estimatedTime}
-              </Text>
-            </View>
-          )}
       </TouchableOpacity>
     );
   };
@@ -258,15 +266,9 @@ export function OrdersPage() {
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.filterScroll}
           >
-            {[
-              { id: "all", label: "Tất cả" },
-              { id: "active", label: "Đang xử lý" },
-              { id: "completed", label: "Hoàn thành" },
-            ].map((tab) => {
+            {FILTER_TABS.map((tab) => {
               const isActive = filter === tab.id;
-
               return (
-                // 💡 ĐÃ SỬA LỖI: TouchableOpacity bọc View có overflow: hidden
                 <TouchableOpacity
                   key={tab.id}
                   onPress={() => setFilter(tab.id as any)}
@@ -278,7 +280,6 @@ export function OrdersPage() {
                       isActive ? styles.filterActive : styles.filterInactive,
                     ]}
                   >
-                    {/* 💡 LINEAR GRADIENT CHO NỀN ACTIVE */}
                     {isActive && (
                       <LinearGradient
                         colors={[COLORS.emerald500, COLORS.teal600]}
@@ -287,12 +288,10 @@ export function OrdersPage() {
                         style={StyleSheet.absoluteFill}
                       />
                     )}
-
-                    {/* TEXT */}
                     <Text
                       style={[
                         styles.filterActiveText,
-                        { color: isActive ? COLORS.white : COLORS.slate700 }, // Đặt màu text
+                        { color: isActive ? COLORS.white : COLORS.slate700 },
                       ]}
                     >
                       {tab.label}
@@ -553,5 +552,16 @@ const styles = StyleSheet.create({
     color: COLORS.amber600,
     fontSize: 14,
     fontWeight: "500",
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#333",
   },
 });
