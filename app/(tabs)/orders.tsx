@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
-import React, { useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router";
+import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -138,7 +138,10 @@ export function OrdersPage() {
       // ✅ GỌI HÀM FETCH EXPORTED TỪ CONTEXT/API
       const fetchedOrders = await fetchOrdersWithDetails(user.id);
       console.log("ĐƠN HÀNG TẢI VỀ:", fetchedOrders);
-      setOrders(fetchedOrders);
+      const sortedOrders = [...fetchedOrders].sort(
+        (a, b) => Number(b.id) - Number(a.id) // mới → cũ
+      );
+      setOrders(sortedOrders);
     } catch (e) {
       console.error("LỖI TẢI ĐƠN HÀNG TRONG UI:", e);
       setOrders([]);
@@ -146,14 +149,16 @@ export function OrdersPage() {
       setIsLoading(false);
     }
   };
-  useEffect(() => {
-    if (user && user.id) {
-      loadOrders();
-    } else {
-      setOrders([]);
-      setIsLoading(false);
-    }
-  }, [user?.id]);
+  useFocusEffect(
+    useCallback(() => {
+      if (user && user.id) {
+        loadOrders();
+      } else {
+        setOrders([]);
+        setIsLoading(false);
+      }
+    }, [user?.id])
+  );
 
   const filteredOrders = orders.filter((order) => {
     if (filter === "all") return true;

@@ -1,15 +1,15 @@
-import React, { useState, ComponentProps } from "react";
+import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import React, { ComponentProps, useState } from "react";
 import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
+  Dimensions,
   SafeAreaView,
   ScrollView,
-  Dimensions, // 💡 Thêm Dimensions để có thể tính toán chính xác
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Feather } from "@expo/vector-icons";
 import { LoginForm } from "./auth/components/LoginForm";
 import { RegisterForm } from "./auth/components/RegisterForm";
 
@@ -315,7 +315,7 @@ export function AppFinal() {
               </Text>
               <View style={styles.footerLinkContainer}>
                 <Text style={styles.footerText}>
-                  <Text style={styles.footerLink}>Điều khoản dịch vụ</Text> và{" "}
+                  <Text style={styles.footerLink}>Điều khoản dịch vụ</Text> và
                   <Text style={styles.footerLink}>Chính sách bảo mật</Text>
                 </Text>
               </View>

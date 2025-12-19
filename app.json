@@ -11,6 +11,8 @@
     "ios": {
       "supportsTablet": true
     },
+   
+
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -19,25 +21,23 @@
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
       },
       "edgeToEdgeEnabled": true,
-      "predictiveBackGestureEnabled": false
+      "predictiveBackGestureEnabled": false,
+      "package": "com.anonymous.LTDD2"
     },
     "web": {
       "bundler": "metro",
       "output": "static",
       "favicon": "./assets/images/favicon.png",
-     
       "proxy": {
-        "/api/database/rows/table/": { 
+        "/api/database/rows/table/": {
           "target": "https://api.baserow.io",
           "changeOrigin": true,
-          "pathRewrite": { 
-       
+          "pathRewrite": {
             "^/api/database/rows/table/": "/api/database/rows/table/"
           },
           "secure": true
         }
       }
-     
     },
     "plugins": [
       "expo-router",
@@ -58,6 +58,13 @@
     "experiments": {
       "typedRoutes": true,
       "reactCompiler": true
-    }
+    },
+    "extra": {
+      "router": {},
+      "eas": {
+        "projectId": "8da6a535-5be8-4ddd-8b8c-8bf45728acff"
+      }
+    },
+    "owner": "xannn"
   }
 }

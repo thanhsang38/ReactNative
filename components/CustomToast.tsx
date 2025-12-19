@@ -1,81 +1,132 @@
-// components/CustomToast.tsx
-
-import React from "react";
-import { View, Text, StyleSheet, Platform } from "react-native";
-import { BaseToast, BaseToastProps } from "react-native-toast-message";
-import { LinearGradient } from "expo-linear-gradient";
 import { Feather } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import React from "react";
+import { StyleSheet, Text, View } from "react-native";
+import Animated, { FadeInUp, FadeOutDown } from "react-native-reanimated";
+import { BaseToastProps } from "react-native-toast-message";
+
+type Variant = "success" | "error";
 
 const COLORS = {
+  successFrom: "#10b981",
+  successTo: "#0d9488",
+
+  errorFrom: "#ef4444",
+  errorTo: "#b91c1c",
+
   white: "#ffffff",
-  slate100: "#f1f5f9",
-  emerald500: "#10b981",
-  emerald600: "#059669",
-  teal600: "#0d9488",
-  slate800: "#1e293b",
+  subText: "rgba(255,255,255,0.85)",
+};
+type CustomToastProps = BaseToastProps & {
+  // 👇 runtime CÓ, TS không biết → mình khai báo
+  props: {
+    variant: Variant;
+  };
+};
+const CustomToast = (rawProps: BaseToastProps) => {
+  const props = rawProps as CustomToastProps; // 👈 ÉP KIỂU 1 LẦN DUY NHẤT
+
+  const isError = props.props?.variant === "error";
+  return (
+    <Animated.View
+      entering={FadeInUp.duration(300)}
+      exiting={FadeOutDown.duration(200)}
+      style={styles.wrapper}
+    >
+      <LinearGradient
+        colors={
+          isError
+            ? [COLORS.errorFrom, COLORS.errorTo]
+            : [COLORS.successFrom, COLORS.successTo]
+        }
+        style={styles.container}
+      >
+        <View
+          style={[
+            styles.icon,
+            { backgroundColor: isError ? "#fff1f2" : "#ecfdf5" },
+          ]}
+        >
+          <Feather
+            name={isError ? "x" : "check"}
+            size={18}
+            color={isError ? COLORS.errorFrom : COLORS.successFrom}
+          />
+        </View>
+
+        <View style={styles.textContainer}>
+          <Text style={styles.title}>{props.text1}</Text>
+          {props.text2 && <Text style={styles.message}>{props.text2}</Text>}
+        </View>
+      </LinearGradient>
+    </Animated.View>
+  );
 };
 
-// 💡 Định nghĩa Toast Component tùy chỉnh
-const SuccessToast = (props: BaseToastProps) => (
-  <View style={styles.base}>
-    <LinearGradient
-      colors={[COLORS.emerald600, COLORS.teal600]}
-      start={{ x: 0, y: 0 }}
-      end={{ x: 1, y: 1 }}
-      style={styles.gradientBackground}
-    >
-      <View style={styles.contentContainer}>
-        <Feather name="check-circle" size={20} color={COLORS.white} />
-        <View style={styles.textContainer}>
-          <Text style={styles.text1}>{props.text1}</Text>
-          {props.text2 && <Text style={styles.text2}>{props.text2}</Text>}
-        </View>
-      </View>
-    </LinearGradient>
-  </View>
-);
-
-// 💡 Object cấu hình Toast tùy chỉnh
 export const toastConfig = {
-  success_custom: SuccessToast,
+  custom: CustomToast,
 };
 
 const styles = StyleSheet.create({
-  base: {
-    width: "90%",
-    borderRadius: 12,
-    overflow: "hidden",
-    // Tăng shadow để nổi bật
+  wrapper: {
+    width: "92%",
+    borderRadius: 16,
+    marginVertical: 6,
     shadowColor: "#000",
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.2,
-    shadowRadius: 5,
-    elevation: 8,
+    shadowOffset: { width: 0, height: 8 },
+    shadowOpacity: 0.25,
+    shadowRadius: 10,
+    elevation: 12,
   },
-  gradientBackground: {
-    flexDirection: "row",
-    padding: 12,
-    alignItems: "center",
-    justifyContent: "space-between",
-    width: "100%",
-  },
-  contentContainer: {
+
+  container: {
     flexDirection: "row",
     alignItems: "center",
-    flex: 1,
-    gap: 10,
+    padding: 14,
+    borderRadius: 16,
   },
+
+  iconSuccess: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#ecfdf5",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
+  iconError: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: "#fff1f2",
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
+  },
+
   textContainer: {
     flex: 1,
   },
-  text1: {
+
+  title: {
     color: COLORS.white,
-    fontWeight: "bold",
-    fontSize: 14,
+    fontSize: 15,
+    fontWeight: "700",
   },
-  text2: {
-    color: COLORS.slate100,
-    fontSize: 12,
+
+  message: {
+    color: COLORS.subText,
+    fontSize: 13,
     marginTop: 2,
+  },
+  icon: {
+    width: 34,
+    height: 34,
+    borderRadius: 17,
+    alignItems: "center",
+    justifyContent: "center",
+    marginRight: 12,
   },
 });

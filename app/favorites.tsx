@@ -1,78 +1,59 @@
-import React, { useState, ComponentProps } from "react";
+import { Ionicons } from "@expo/vector-icons";
+import { LinearGradient } from "expo-linear-gradient";
+import { useRouter } from "expo-router"; // Cần thêm import này
+import React, { ComponentProps, useEffect, useState } from "react";
 import {
-  View,
+  ActivityIndicator,
+  Dimensions,
+  FlatList,
+  Image,
+  ScrollView,
+  StyleSheet,
   Text,
   TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  FlatList,
-  Dimensions,
-  Image,
-  Platform,
+  View,
 } from "react-native";
-import { LinearGradient } from "expo-linear-gradient";
-import { Feather, Ionicons } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-import { useRouter } from "expo-router";
+import Toast from "react-native-toast-message";
 
-// 💡 IMPORTS COMPONENTS & CONTEXTS (Giả định)
+// 💡 IMPORTS CONTEXTS & API
 import { Header } from "../components/Header";
-import { useCart } from "../context/CartContext";
-// import { products } from '../data/products'; // Dữ liệu sản phẩm mock
+import { useAuth } from "../context/AuthContext";
+import { CartItem, useCart } from "../context/CartContext";
+import {
+  getFavoriteProductsByUser,
+  ProductRow,
+  updateFavoriteProductIds,
+} from "./services/baserowApi"; // ✅ IMPORT API FAVORITES
 
 // --- Types & Data ---
 type Page = string;
 type IoniconsName = ComponentProps<typeof Ionicons>["name"];
+const normalizeText = (text: any): string => {
+  if (!text) return "";
 
-interface Product {
-  id: string;
-  name: string;
-  price: number;
-  rating: number;
-  soldCount: number;
-  image: string;
-  popular: boolean;
-}
+  let value = "";
 
-// 💡 Dữ liệu sản phẩm giả định (Mock Data)
-const products: Product[] = [
-  {
-    id: "1",
-    name: "Trà sữa Trân Châu",
-    price: 45000,
-    rating: 4.5,
-    soldCount: 120,
-    image: "https://images.unsplash.com/photo-1670468642364-6cacadfb7bb0?w=400",
-    popular: true,
-  },
-  {
-    id: "3",
-    name: "Trà Đào Cam Sả",
-    price: 50000,
-    rating: 4.2,
-    soldCount: 80,
-    image: "https://images.unsplash.com/photo-1645467148762-6d7fd24d7acf?w=400",
-    popular: true,
-  },
-  {
-    id: "7",
-    name: "Cà phê Muối",
-    price: 35000,
-    rating: 4.8,
-    soldCount: 300,
-    image: "https://images.unsplash.com/photo-1517701550927-30cf4ba1dba5?w=400",
-    popular: false,
-  },
-  {
-    id: "8",
-    name: "Sinh tố Xoài",
-    price: 60000,
-    rating: 4.9,
-    soldCount: 250,
-    image: "https://images.unsplash.com/photo-1625480499375-27220a672237?w=400",
-    popular: true,
-  },
-];
+  // Baserow link row / select
+  if (typeof text === "object") {
+    if (Array.isArray(text)) {
+      value = text[0]?.value || text[0]?.name || "";
+    } else {
+      value = text.value || text.name || "";
+    }
+  } else {
+    value = text;
+  }
+
+  return value
+    .toString()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // ✅ bỏ dấu
+    .replace(/đ/g, "d")
+    .toLowerCase()
+    .trim()
+    .replace(/\s+/g, "_"); // ✅ space → _
+};
 
 const { width } = Dimensions.get("window");
 const ITEM_WIDTH = (width - 48) / 2; // 16px padding * 2 + 4px gap
@@ -94,6 +75,14 @@ const COLORS = {
   amber400: "#fbbf24",
 };
 
+// ✅ MẢNG DANH MỤC ĐỒ UỐNG ĐÃ CHUẨN HÓA (Dùng để kiểm tra loại sản phẩm)
+const DRINK_CATEGORIES_NORMALIZED = [
+  "sinh_to",
+  "ca_phe",
+  "tra_sua",
+  "tra_trai_cay",
+];
+
 // -----------------------------------------------------------
 
 interface FavoritesPageProps {
@@ -103,159 +92,276 @@ interface FavoritesPageProps {
 
 export function FavoritesPage({ goBack }: FavoritesPageProps) {
   const router = useRouter();
-  // Mock favorites - in real app this would be persisted
-  const [favorites, setFavorites] = useState<string[]>(["1", "3", "7"]);
-  const insets = useSafeAreaInsets();
+  const { user } = useAuth();
+  const { addToCart } = useCart();
+  const insets = useSafeAreaInsets(); // ✅ STATES DỮ LIỆU THẬT
 
-  const favoriteProducts = products.filter((p) => favorites.includes(p.id));
+  const [favoriteProductIds, setFavoriteProductIds] = useState<number[]>([]);
+  const [favoriteProducts, setFavoriteProducts] = useState<ProductRow[]>([]);
+  const [isLoading, setIsLoading] = useState(true);
 
-  const toggleFavorite = (productId: string) => {
-    setFavorites((prev) =>
-      prev.includes(productId)
-        ? prev.filter((id) => id !== productId)
-        : [...prev, productId]
-    );
+  const headerHeight = 50 + insets.top;
+
+  // --------------------------------------------------
+  // ✅ LOGIC FETCH VÀ ĐỒNG BỘ FAVORITES
+  // --------------------------------------------------
+  const loadFavorites = async () => {
+    if (!user || !user.id) {
+      setIsLoading(false);
+      return;
+    }
+
+    setIsLoading(true);
+    try {
+      // 1. Tải các ID yêu thích từ cột User
+      const products = await getFavoriteProductsByUser(user.id);
+      setFavoriteProducts(products);
+      const ids = products.map((p) => p.id);
+      setFavoriteProductIds(ids);
+    } catch (e) {
+      console.error("Lỗi tải mục yêu thích:", e);
+      Toast.show({
+        type: "error",
+        text1: "Lỗi tải",
+        text2: "Không thể tải danh sách yêu thích.",
+        visibilityTime: 3000,
+      });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
-  // 💡 HÀM ĐIỀU HƯỚNG SỬ DỤNG ROUTER
+  useEffect(() => {
+    loadFavorites();
+  }, [user?.id]);
+
+  // --------------------------------------------------
+  // ✅ HÀM TOGGLE FAVORITE (GỌI API UPDATE)
+  // --------------------------------------------------
+  const toggleFavorite = async (productId: number) => {
+    if (!user || !user.id || isLoading) return;
+
+    const productIdNum = Number(productId);
+    const isCurrentlyFavorite = favoriteProductIds.includes(productIdNum);
+
+    let newIds: number[];
+
+    if (isCurrentlyFavorite) {
+      // Xóa khỏi danh sách
+      newIds = favoriteProductIds.filter((id) => id !== productIdNum);
+    } else {
+      // Thêm vào danh sách
+      newIds = [...favoriteProductIds, productIdNum];
+    }
+
+    // Tối ưu hóa UI: Cập nhật UI ngay lập tức
+    setFavoriteProductIds(newIds);
+    setFavoriteProducts(
+      newIds.length > 0
+        ? favoriteProducts.filter((p) => newIds.includes(p.id))
+        : []
+    );
+
+    try {
+      // Gọi API cập nhật cột Favorites trên bảng User
+      const result = await updateFavoriteProductIds(user.id, newIds);
+
+      if (result.success) {
+        Toast.show({
+          type: "success",
+          text1: isCurrentlyFavorite ? "Đã xóa" : "Đã thêm",
+          text2: isCurrentlyFavorite
+            ? "Đã xóa khỏi mục yêu thích"
+            : "Đã thêm vào mục yêu thích",
+          visibilityTime: 1500,
+        });
+      } else {
+        // Nếu API thất bại, tải lại trạng thái gốc để đồng bộ hóa
+        loadFavorites();
+        Toast.show({
+          type: "error",
+          text1: "Lỗi đồng bộ",
+          text2: result.message || "Không thể cập nhật yêu thích.",
+          visibilityTime: 3000,
+        });
+      }
+    } catch (e) {
+      console.error("API update failed:", e);
+      loadFavorites(); // Tải lại nếu có lỗi mạng/hệ thống
+    }
+  };
+
+  // --------------------------------------------------
+  // ✅ HÀM ADD TO CART (SỬ DỤNG DỮ LIỆU THẬT)
+  // --------------------------------------------------
+  const handleAddToCart = (product: ProductRow) => {
+    const productIdString = product.id.toString();
+
+    const normalizedCategory = normalizeText(product.category ?? "");
+
+    const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(normalizedCategory);
+    console.log("RAW category:", product.category);
+    console.log("Normalized:", normalizeText(product.category));
+
+    const newItem: Omit<CartItem, "id"> = {
+      productId: productIdString,
+      name: product.name,
+      image: product.image, // ✅ Dùng product.image
+      price: product.price,
+      quantity: 1,
+      size: "M",
+      ice: isDrink ? 75 : 0,
+      sugar: isDrink ? 75 : 0,
+      isDrink: isDrink,
+    };
+    addToCart(newItem);
+    Toast.show({
+      type: "success",
+      text1: "Đã thêm vào giỏ",
+      text2: `${product.name}`,
+      visibilityTime: 1500,
+    });
+  }; // 💡 HÀM ĐIỀU HƯỚNG SỬ DỤNG ROUTER
+
   const handleNavigate = (path: string, id?: string) => {
     router.push(
       id ? ({ pathname: path, params: { id } } as any) : (path as any)
     );
   };
 
-  const headerHeight = 50 + insets.top;
+  // --------------------------------------------------
+  // ✅ RENDER LOADING/EMPTY STATES
+  // --------------------------------------------------
+  if (isLoading) {
+    return (
+      <View
+        style={[
+          styles.fullContainer,
+          styles.loadingContainer,
+          { paddingTop: headerHeight },
+        ]}
+      >
+        <ActivityIndicator size="large" color={COLORS.emerald600} />
+        <Text style={styles.loadingText}>Đang tải mục yêu thích...</Text>
+      </View>
+    );
+  }
+
+  if (favoriteProducts.length === 0) {
+    return (
+      <View style={styles.fullContainer}>
+        <Header title="Yêu thích" showBack={true} onBack={goBack} />
+        <View style={[styles.emptyContent, { paddingTop: headerHeight }]}>
+          <View style={styles.emptyIconWrapper}>
+            <Ionicons name="heart" size={64} color={COLORS.slate400} />
+          </View>
+          <Text style={styles.emptyTitle}>Chưa có sản phẩm yêu thích</Text>
+          <Text style={styles.emptySubtitle}>
+            Thêm sản phẩm yêu thích để dễ dàng tìm lại sau này
+          </Text>
+          <TouchableOpacity
+            onPress={() => router.push("/(tabs)/menu")}
+            style={styles.exploreButton}
+          >
+            <LinearGradient
+              colors={[COLORS.emerald500, COLORS.teal600]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 1 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <Text style={styles.exploreButtonText}>Khám phá thực đơn</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    );
+  }
 
   return (
     <View style={styles.fullContainer}>
       <Header title="Yêu thích" showBack={true} onBack={goBack} />
-
       <ScrollView
         showsVerticalScrollIndicator={false}
         style={{ paddingTop: headerHeight }} // Bù đắp Header
         contentContainerStyle={styles.scrollContent}
       >
         <View style={styles.contentPadding}>
-          {favoriteProducts.length === 0 ? (
-            /* Empty State */
-            <View style={styles.emptyView}>
-              <View style={styles.emptyIconWrapper}>
-                <Ionicons name="heart" size={64} color={COLORS.slate400} />
-              </View>
-              <Text style={styles.emptyTitle}>Chưa có sản phẩm yêu thích</Text>
-              <Text style={styles.emptySubtitle}>
-                Thêm sản phẩm yêu thích để dễ dàng tìm lại sau này
-              </Text>
-              <TouchableOpacity
-                onPress={() => router.push("/(tabs)/menu")}
-                style={styles.exploreButton}
-              >
-                <LinearGradient
-                  colors={[COLORS.emerald500, COLORS.teal600]}
-                  start={{ x: 0, y: 0 }}
-                  end={{ x: 1, y: 1 }}
-                  style={StyleSheet.absoluteFill}
-                />
-                <Text style={styles.exploreButtonText}>Khám phá thực đơn</Text>
-              </TouchableOpacity>
-            </View>
-          ) : (
-            <>
-              <Text style={styles.countText}>
-                {favoriteProducts.length} sản phẩm yêu thích
-              </Text>
+          <Text style={styles.countText}>
+            {favoriteProducts.length} sản phẩm yêu thích
+          </Text>
+          {/* Products Grid */}
+          <FlatList
+            data={favoriteProducts}
+            keyExtractor={(item) => item.id.toString()}
+            numColumns={2}
+            scrollEnabled={false}
+            columnWrapperStyle={styles.productRow}
+            renderItem={({ item: product }) => {
+              const isFavorite = favoriteProductIds.includes(product.id);
+              const heartIconName = isFavorite ? "heart" : "heart-outline"; // Ionicons
+              const starIconName = "star"; // Ionicons
 
-              {/* Products Grid */}
-              <FlatList
-                data={favoriteProducts}
-                keyExtractor={(item) => item.id}
-                numColumns={2}
-                scrollEnabled={false}
-                columnWrapperStyle={styles.productRow}
-                renderItem={({ item: product }) => {
-                  const isFavorite = favorites.includes(product.id);
-                  const heartIconName = isFavorite ? "heart" : "heart-outline"; // Ionicons
-                  const starIconName = "star"; // Ionicons
+              return (
+                <TouchableOpacity
+                  key={product.id}
+                  onPress={() =>
+                    handleNavigate("product-detail", product.id.toString())
+                  }
+                  style={styles.productCard}
+                  activeOpacity={0.8}
+                >
+                  <View style={styles.productImageWrapper}>
+                    <Image
+                      source={{ uri: product.image }} // ✅ Dùng product.image
+                      style={styles.productImage}
+                    />
+                    {/* Favorite Button */}
 
-                  return (
                     <TouchableOpacity
-                      key={product.id}
-                      onPress={() =>
-                        handleNavigate("product-detail", product.id)
-                      }
-                      style={styles.productCard}
-                      activeOpacity={0.8}
+                      onPress={(e) => {
+                        // @ts-ignore e.stopPropagation();
+                        toggleFavorite(product.id); // ✅ Dùng ID số
+                      }}
+                      style={styles.favoriteButton}
                     >
-                      <View style={styles.productImageWrapper}>
-                        <Image
-                          source={{ uri: product.image }}
-                          style={styles.productImage}
-                        />
-
-                        {/* Favorite Button */}
-                        <TouchableOpacity
-                          onPress={(e) => {
-                            // @ts-ignore e.stopPropagation();
-                            toggleFavorite(product.id);
-                          }}
-                          style={styles.favoriteButton}
-                        >
-                          <Ionicons
-                            name={heartIconName as IoniconsName}
-                            size={20}
-                            color={isFavorite ? COLORS.red500 : COLORS.slate400}
-                          />
-                        </TouchableOpacity>
-
-                        {/* Hot Tag */}
-                        {product.popular && (
-                          <View style={styles.hotTag}>
-                            <Text style={styles.hotTagText}>🔥 Hot</Text>
-                          </View>
-                        )}
-                      </View>
-
-                      {/* Product Details */}
-                      <View style={styles.productDetails}>
-                        <Text numberOfLines={2} style={styles.productName}>
-                          {product.name}
-                        </Text>
-                        <View style={styles.ratingRow}>
-                          <Ionicons
-                            name={starIconName as IoniconsName}
-                            size={16}
-                            color={COLORS.amber400}
-                            style={styles.ratingStar}
-                          />
-                          <Text style={styles.ratingTextSmall}>
-                            {product.rating}
-                          </Text>
-                          <Text style={styles.soldCountText}>
-                            ({product.soldCount})
-                          </Text>
-                        </View>
-
-                        <View style={styles.productFooter}>
-                          <Text style={styles.productPrice}>
-                            {product.price.toLocaleString("vi-VN")}đ
-                          </Text>
-                          <TouchableOpacity
-                            onPress={() => handleNavigate("cart")} // Giả định nút thêm vào giỏ
-                            style={styles.addButton}
-                          >
-                            <Text style={styles.addButtonText}>+</Text>
-                          </TouchableOpacity>
-                        </View>
-                      </View>
+                      <Ionicons
+                        name={heartIconName as IoniconsName}
+                        size={20}
+                        color={isFavorite ? COLORS.red500 : COLORS.slate400}
+                      />
                     </TouchableOpacity>
-                  );
-                }}
-                contentContainerStyle={styles.productsGrid}
-              />
-            </>
-          )}
-        </View>
+                    {/* Hot Tag (Giả định) */}
 
+                    {product.price > 55000 && (
+                      <View style={styles.hotTag}>
+                        <Text style={styles.hotTagText}>🔥 Hot</Text>
+                      </View>
+                    )}
+                  </View>
+                  {/* Product Details */}
+                  <View style={styles.productDetails}>
+                    <Text numberOfLines={2} style={styles.productName}>
+                      {product.name}
+                    </Text>
+
+                    <View style={styles.productFooter}>
+                      <Text style={styles.productPrice}>
+                        {Number(product.price).toLocaleString("vi-VN")}đ
+                      </Text>
+
+                      <TouchableOpacity
+                        onPress={() => handleAddToCart(product)} // ✅ GỌI ADD TO CART THẬT
+                        style={styles.addButton}
+                      >
+                        <Text style={styles.addButtonText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
+            contentContainerStyle={styles.productsGrid}
+          />
+        </View>
         {/* Padding cuối cùng */}
         <View style={{ height: 40 }} />
       </ScrollView>
@@ -273,11 +379,21 @@ const styles = StyleSheet.create({
   fullContainer: { flex: 1, backgroundColor: COLORS.bg },
   scrollContent: { paddingBottom: 0 }, // Đảm bảo chiếm toàn bộ không gian
   contentPadding: { paddingHorizontal: 16, paddingTop: 16 },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: COLORS.slate700,
+  }, // --- Empty State ---
 
-  // --- Empty State ---
   emptyView: {
     alignItems: "center",
     paddingVertical: 80,
+    textAlign: "center",
   },
   emptyIconWrapper: {
     width: 128,
@@ -318,9 +434,8 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
     zIndex: 1,
-  },
+  }, // --- Product Grid ---
 
-  // --- Product Grid ---
   countText: { color: COLORS.slate600, fontSize: 14, marginBottom: 16 },
   productsGrid: {
     paddingBottom: 40,
@@ -400,5 +515,11 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     lineHeight: 18,
+  },
+  emptyContent: {
+    // ✅ ADDED: Fix style bị thiếu
+    flex: 1,
+    alignItems: "center",
+    paddingHorizontal: 16,
   },
 });

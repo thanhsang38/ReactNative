@@ -158,7 +158,7 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
   // 💡 HÀM TOAST
   const showSuccessToast = (message: string) => {
     Toast.show({
-      type: "success_custom",
+      type: "success",
       text1: "Địa chỉ",
       text2: message,
       position: "top",

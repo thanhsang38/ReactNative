@@ -1,11 +1,13 @@
 import { Feather } from "@expo/vector-icons";
+import { useFocusEffect } from "@react-navigation/native";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router"; // 💡 SỬ DỤNG ROUTER
-import React, { useEffect, useState } from "react";
+import React, { useCallback, useState } from "react";
 import {
   ActivityIndicator,
   Alert,
   Image,
+  Modal,
   ScrollView,
   StyleSheet,
   Text,
@@ -15,7 +17,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { getAddresses, OrderCartItem } from "./services/baserowApi";
+import { AddressRow, getAddresses, OrderCartItem } from "./services/baserowApi";
 // 💡 IMPORTS COMPONENTS & CONTEXTS
 import { Header } from "../components/Header";
 import { useAuth } from "../context/AuthContext";
@@ -63,7 +65,14 @@ interface CheckoutPageProps {
 export function CheckoutPage({ goBack }: CheckoutPageProps) {
   const router = useRouter(); // Khởi tạo Router
   const { user } = useAuth();
-  const { items, getTotalPrice, clearCart } = useCart();
+  const {
+    items,
+    getSubtotal,
+    getDiscountAmount,
+    getTotalPrice,
+    clearCart,
+    selectedVoucher,
+  } = useCart();
   const { createOrder } = useOrders();
   const insets = useSafeAreaInsets();
 
@@ -76,8 +85,18 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
   const [note, setNote] = useState("");
   const [isPlacingOrder, setIsPlacingOrder] = useState(false);
 
+  const [showAddressModal, setShowAddressModal] = useState(false);
+  const [availableAddresses, setAvailableAddresses] = useState<AddressRow[]>(
+    []
+  );
+
   const headerHeight = 10 + insets.top;
-  const totalPrice = getTotalPrice();
+  const subtotal = getSubtotal();
+  const discountAmount = getDiscountAmount();
+  const totalPrice = getTotalPrice(); // Tổng cuối cùng sau giảm giá
+  const isFreeShipping =
+    selectedVoucher?.type === "shipping" &&
+    subtotal >= selectedVoucher.minOrder;
 
   const fetchDefaultAddress = async () => {
     if (!user || !user.id) return;
@@ -86,7 +105,9 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
     try {
       const result = await getAddresses(user.id);
       if (result.success && result.data && result.data.length > 0) {
-        // Sắp xếp để tìm địa chỉ mặc định hoặc địa chỉ cũ nhất (ID nhỏ nhất)
+        // ✅ LƯU TRỮ TẤT CẢ ĐỊA CHỈ
+        setAvailableAddresses(result.data); // Sắp xếp để tìm địa chỉ mặc định hoặc địa chỉ cũ nhất (ID nhỏ nhất)
+
         const sortedAddresses = result.data.sort((a, b) => {
           if (a.is_default !== b.is_default) {
             return a.is_default ? -1 : 1; // Mặc định lên đầu
@@ -99,10 +120,11 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
         setDefaultAddress({
           id: defaultAddr.id,
           addressText: defaultAddr.address,
-          phone: user.phone,
+          phone: user.phone || "N/A",
         });
       } else {
         setDefaultAddress(null); // Không có địa chỉ nào
+        setAvailableAddresses([]);
       }
     } catch (e) {
       console.error("Error fetching default address:", e);
@@ -117,14 +139,27 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
     }
   };
 
-  useEffect(() => {
-    if (user && user.id) {
-      fetchDefaultAddress();
-    } else {
-      setIsAddressLoading(false);
-    }
-  }, [user?.id]);
+  useFocusEffect(
+    useCallback(() => {
+      if (user?.id) {
+        fetchDefaultAddress();
+      }
+    }, [user?.id])
+  );
 
+  const handleAddressSelect = (selectedAddr: AddressRow) => {
+    if (!user) return;
+    setDefaultAddress({
+      id: selectedAddr.id,
+      addressText: selectedAddr.address,
+      phone: user.phone || "N/A",
+    });
+    setShowAddressModal(false);
+  };
+  const handleNavigateToAddAddress = () => {
+    setShowAddressModal(false);
+    router.push("/address");
+  };
   const handlePlaceOrder = async () => {
     // ✅ FIX: Thêm async
     // 💡 Logic Xử lý Đặt hàng
@@ -160,7 +195,7 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
       paymentMethod: paymentMethod,
       deliveryAddressText: defaultAddress.addressText, // Chuỗi hiển thị
       note: note,
-      // BỎ estimatedTime và discount (không có cột Baserow)
+      voucherId: selectedVoucher?.id,
     };
 
     try {
@@ -181,11 +216,77 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
     }
   };
   const isBusy = isAddressLoading || isPlacingOrder;
+  const renderAddressModal = () => (
+    <Modal
+      animationType="slide"
+      transparent={true}
+      visible={showAddressModal}
+      onRequestClose={() => setShowAddressModal(false)}
+    >
+      <View style={styles.modalOverlay}>
+        <View style={styles.modalContainer}>
+          <View style={styles.modalHeader}>
+            <Text style={styles.modalTitle}>Chọn Địa chỉ Giao hàng</Text>
+            <TouchableOpacity onPress={() => setShowAddressModal(false)}>
+              <Feather name="x" size={24} color={COLORS.slate700} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.modalScroll}>
+            {availableAddresses.length === 0 ? (
+              <Text style={styles.emptyAddressText}>
+                Bạn chưa có địa chỉ nào được lưu.
+              </Text>
+            ) : (
+              availableAddresses.map((addr, index) => {
+                const isSelected = addr.id === defaultAddress?.id;
+                return (
+                  <TouchableOpacity
+                    key={addr.id}
+                    style={[
+                      styles.addressOption,
+                      isSelected && styles.addressOptionSelected,
+                    ]}
+                    onPress={() => handleAddressSelect(addr)}
+                  >
+                    <Feather
+                      name={isSelected ? "check-circle" : "circle"}
+                      size={20}
+                      color={isSelected ? COLORS.emerald600 : COLORS.slate400}
+                    />
+                    <View style={styles.addressOptionInfo}>
+                      <Text style={styles.addressOptionText}>
+                        {addr.address}
+                      </Text>
+                      <Text style={styles.addressOptionType}>
+                        {addr.is_default && "Mặc định"}
+                        {addr.is_default
+                          ? ` | Loại: ${addr.type}`
+                          : `Loại: ${addr.type}`}
+                      </Text>
+                    </View>
+                  </TouchableOpacity>
+                );
+              })
+            )}
+          </ScrollView>
+
+          <TouchableOpacity
+            style={styles.addAddressButton}
+            onPress={handleNavigateToAddAddress}
+          >
+            <Feather name="plus-circle" size={18} color={COLORS.white} />
+            <Text style={styles.addAddressButtonText}>Thêm địa chỉ mới</Text>
+          </TouchableOpacity>
+        </View>
+      </View>
+    </Modal>
+  );
   return (
     <View style={styles.fullContainer}>
       {/* 1. Header (Fixed/Absolute) */}
       <Header title="Thanh toán" showBack={true} onBack={goBack} />
-
+      {renderAddressModal()}
       <ScrollView
         showsVerticalScrollIndicator={false}
         style={{ paddingTop: headerHeight }}
@@ -198,9 +299,10 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
               <Text style={styles.sectionTitle}>Địa chỉ giao hàng</Text>
             </View>
             <TouchableOpacity
-              onPress={() => router.push("/address")} // 💡 ROUTER: Chuyển đến màn hình Address
+              onPress={() => setShowAddressModal(true)}
               style={styles.addressButton}
               activeOpacity={0.7}
+              disabled={isAddressLoading}
             >
               <View style={styles.addressInfo}>
                 {isAddressLoading ? (
@@ -320,16 +422,23 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Tạm tính</Text>
                 <Text style={styles.summaryValue}>
-                  {totalPrice.toLocaleString("vi-VN")}đ
+                  {subtotal.toLocaleString("vi-VN")}đ
+                </Text>
+              </View>
+
+              <View style={styles.summaryRow}>
+                <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
+
+                <Text style={styles.summaryValueFree}>
+                  {isFreeShipping ? "Miễn phí" : "20.000đ"}
                 </Text>
               </View>
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
-                <Text style={styles.summaryValueFree}>Miễn phí</Text>
-              </View>
-              <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Giảm giá</Text>
-                <Text style={styles.summaryValueFree}>0đ</Text>
+                <Text style={styles.summaryValueDiscount}>
+                  - {discountAmount.toLocaleString("vi-VN")}đ
+                  {/* ✅ SỬ DỤNG DISCOUNT AMOUNT */}
+                </Text>
               </View>
               <View style={styles.summaryDivider} />
               <View style={styles.summaryRow}>
@@ -631,5 +740,86 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: "bold",
     zIndex: 1,
+  },
+  modalOverlay: {
+    flex: 1,
+    justifyContent: "flex-end",
+    backgroundColor: "rgba(0, 0, 0, 0.5)",
+  },
+  modalContainer: {
+    backgroundColor: COLORS.white,
+    paddingTop: 16,
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    maxHeight: "80%",
+  },
+  modalScroll: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+  },
+  modalHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    paddingHorizontal: 16,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.slate100,
+  },
+  modalTitle: {
+    fontSize: 18,
+    fontWeight: "bold",
+    color: COLORS.slate800,
+  },
+  emptyAddressText: {
+    textAlign: "center",
+    paddingVertical: 30,
+    color: COLORS.slate500,
+    fontSize: 15,
+  },
+  addressOption: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 15,
+    borderBottomWidth: 1,
+    borderBottomColor: COLORS.slate100,
+    gap: 12,
+  },
+  addressOptionSelected: {
+    backgroundColor: COLORS.emerald50,
+  },
+  addressOptionInfo: {
+    flex: 1,
+  },
+  addressOptionText: {
+    fontSize: 16,
+    color: COLORS.slate800,
+    fontWeight: "500",
+  },
+  addressOptionType: {
+    fontSize: 12,
+    color: COLORS.slate500,
+    marginTop: 2,
+  },
+  addAddressButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    backgroundColor: COLORS.emerald600,
+    padding: 16,
+    borderBottomLeftRadius: 20,
+    borderBottomRightRadius: 20,
+    gap: 8,
+  },
+  addAddressButtonText: {
+    color: COLORS.white,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  summaryValueDiscount: {
+    // ✅ MỚI: Style cho giảm giá
+    color: COLORS.red500,
+    fontSize: 14,
+    fontWeight: "600",
   },
 });

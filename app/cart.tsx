@@ -52,17 +52,52 @@ interface CartPageProps {
 // -----------------------------------------------------------
 
 export function CartPage({ navigateTo, goBack }: CartPageProps) {
-  const { items, updateQuantity, removeFromCart, getTotalPrice, clearCart } =
-    useCart();
+  const {
+    items,
+    updateQuantity,
+    removeFromCart,
+    getTotalPrice,
+    selectedVoucher,
+    setSelectedVoucher,
+    getShippingFee,
+    getDiscountAmount,
+    getSubtotal,
+  } = useCart();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   // 💡 Chiều cao Header (cần thiết cho Layout)
   const headerHeight = 50 + insets.top;
 
-  const handleCheckout = () => {
-    if (items.length > 0) {
-      router.push("/checkout");
+  const subtotal = getSubtotal();
+  const discountAmount = getDiscountAmount();
+  const shippingFee = getShippingFee(); // Lấy phí ship
+  const finalTotal = getTotalPrice(); // Tổng cuối cùng sau giảm giá
+
+  // Kiểm tra Free Shipping (để hiển thị)
+  const isFreeShipping = shippingFee === 0;
+  const isVoucherValid = React.useMemo(() => {
+    if (!selectedVoucher) return true;
+
+    // ❌ Không đạt đơn tối thiểu
+    if (selectedVoucher.minOrder && subtotal < selectedVoucher.minOrder) {
+      return false;
     }
+
+    return true;
+  }, [selectedVoucher, subtotal]);
+  const voucherErrorMessage = React.useMemo(() => {
+    if (!selectedVoucher) return "";
+
+    if (selectedVoucher.minOrder && subtotal < selectedVoucher.minOrder) {
+      return `Đơn hàng tối thiểu ${Number(
+        selectedVoucher.minOrder
+      ).toLocaleString("vi-VN")}đ để dùng mã này`;
+    }
+
+    return "";
+  }, [selectedVoucher, subtotal]);
+  const handleCheckout = () => {
+    if (items.length > 0) router.push("/checkout");
   };
 
   // --- TRẠNG THÁI GIỎ HÀNG TRỐNG ---
@@ -113,7 +148,7 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
             {items.map((item) => {
               // ✅ LOGIC KIỂM TRA ĐỒ UỐNG: Nếu có giá trị Đá/Đường (khác 0), đó là đồ uống.
               // Nếu item.ice/item.sugar == 0, đó là đồ ăn (hoặc không chọn options)
-              const isDrinkItem = item.ice > 0 || item.sugar > 0;
+              const isDrinkItem = item.isDrink;
               return (
                 <View key={item.id} style={styles.itemCard}>
                   <View style={styles.itemDetailsRow}>
@@ -198,18 +233,39 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
           {/* Voucher Section */}
           <View style={styles.voucherSection}>
             <TouchableOpacity
-              onPress={() => router.push("/vouchers")}
               style={styles.voucherButton}
+              onPress={() => router.push("/vouchers")}
             >
-              <View style={styles.voucherLeft}>
-                <View style={styles.voucherIconWrapper}>
-                  <Text style={styles.voucherEmoji}>🎟️</Text>
-                </View>
-                <Text style={styles.voucherText}>Mã giảm giá</Text>
-              </View>
-              <Text style={styles.voucherLink}>Chọn mã</Text>
+              <Text style={styles.voucherText}>🎟️ Mã giảm giá</Text>
+              <Text style={styles.voucherLink}>
+                {
+                  selectedVoucher &&
+                    (selectedVoucher.type === "percent"
+                      ? `-${selectedVoucher.discount}%`
+                      : `-${(
+                          Number(selectedVoucher.discount) || 0
+                        ).toLocaleString("vi-VN")}đ`) // Thêm Number() ở đây
+                }
+              </Text>
             </TouchableOpacity>
+            {selectedVoucher && (
+              <TouchableOpacity
+                style={styles.removeVoucherButton}
+                onPress={() => setSelectedVoucher(null)}
+              >
+                <Feather name="x" size={16} color={COLORS.red500} />
+                <Text style={styles.removeVoucherText}>Hủy mã đã chọn</Text>
+              </TouchableOpacity>
+            )}
           </View>
+          {selectedVoucher && !isVoucherValid && (
+            <View style={styles.voucherWarning}>
+              <Feather name="alert-circle" size={16} color={COLORS.red500} />
+              <Text style={styles.voucherWarningText}>
+                {voucherErrorMessage}
+              </Text>
+            </View>
+          )}
 
           {/* Summary */}
           <View style={styles.summaryCard}>
@@ -221,18 +277,36 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
                   {items.reduce((sum, item) => sum + item.quantity, 0)} món)
                 </Text>
                 <Text style={styles.summaryLabel}>
-                  {getTotalPrice().toLocaleString("vi-VN")}đ
+                  {subtotal.toLocaleString("vi-VN")}đ
                 </Text>
               </View>
+              {discountAmount > 0 && (
+                <View style={styles.summaryRow}>
+                  <Text style={styles.summaryLabel}>Giảm giá</Text>
+                  <Text style={[styles.summaryLabel, { color: COLORS.red500 }]}>
+                    -{discountAmount.toLocaleString("vi-VN")}đ
+                  </Text>
+                </View>
+              )}
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Phí giao hàng</Text>
-                <Text style={styles.summaryFree}>Miễn phí</Text>
+
+                <Text
+                  style={
+                    isFreeShipping ? styles.summaryFree : styles.summaryLabel
+                  }
+                >
+                  {isFreeShipping
+                    ? "Miễn phí"
+                    : shippingFee.toLocaleString("vi-VN") + "đ"}
+                  {/* ✅ FIX: Hiển thị phí ship */}
+                </Text>
               </View>
               <View style={styles.summaryTotalWrapper}>
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryTotalLabel}>Tổng cộng</Text>
                   <Text style={styles.summaryTotalPrice}>
-                    {getTotalPrice().toLocaleString("vi-VN")}đ
+                    {finalTotal.toLocaleString("vi-VN")}đ
                   </Text>
                 </View>
               </View>
@@ -250,12 +324,13 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
           <View>
             <Text style={styles.bottomBarLabel}>Tổng thanh toán</Text>
             <Text style={styles.bottomBarPrice}>
-              {getTotalPrice().toLocaleString("vi-VN")}đ
+              {finalTotal.toLocaleString("vi-VN")}đ
             </Text>
           </View>
           <TouchableOpacity
             onPress={handleCheckout}
-            style={styles.checkoutButton}
+            disabled={!isVoucherValid}
+            style={[styles.checkoutButton, !isVoucherValid && { opacity: 0.5 }]}
           >
             <LinearGradient
               colors={[COLORS.emerald500, COLORS.teal600]}
@@ -556,5 +631,38 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     textAlign: "center",
     zIndex: 1,
+  },
+  removeVoucherButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    justifyContent: "center",
+    paddingVertical: 8,
+    gap: 4,
+    marginTop: 8,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: COLORS.red500 + "50",
+    backgroundColor: COLORS.red500 + "10",
+  },
+  removeVoucherText: {
+    color: COLORS.red500,
+    fontSize: 14,
+    fontWeight: "500",
+  },
+  voucherWarning: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+    marginTop: 8,
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: COLORS.red500 + "10",
+    borderWidth: 1,
+    borderColor: COLORS.red500 + "40",
+  },
+  voucherWarningText: {
+    color: COLORS.red500,
+    fontSize: 13,
+    flex: 1,
   },
 });

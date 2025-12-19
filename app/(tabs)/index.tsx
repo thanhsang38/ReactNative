@@ -1,8 +1,9 @@
 import { AntDesign, Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router"; // Cần thêm import này
-import React, { ComponentProps, useEffect, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router"; // Cần thêm import này
+import React, { ComponentProps, useCallback, useState } from "react";
 import {
+  ActivityIndicator,
   Dimensions,
   FlatList,
   Image,
@@ -21,11 +22,12 @@ import { CartItem, useCart } from "../../context/CartContext";
 import {
   CategoryRow,
   getCategories,
+  getFavoriteProductIds,
   getProducts,
   ProductRow,
+  updateFavoriteProductIds,
 } from "../services/baserowApi";
 // --------------------------------------------------
-import { Redirect } from "expo-router";
 type AntDesignName = ComponentProps<typeof AntDesign>["name"];
 
 const { width } = Dimensions.get("window");
@@ -47,6 +49,7 @@ const COLORS = {
   slate800: "#1e293b",
   emerald400: "#34d399",
   emerald500: "#10b981",
+  emerald600: "#059669",
   teal600: "#0d9488",
   red500: "#ef4444",
   amber400: "#fbbf24",
@@ -54,63 +57,117 @@ const COLORS = {
 
 // 💡 LOẠI BỎ PROPS navigateTo KHỎI HomeRoute
 export function HomeRoute() {
-  <Redirect href="/(tabs)/orders" />;
+  // <Redirect href="/(tabs)/orders" />;
   const router = useRouter();
   const { user } = useAuth();
   const { addToCart, getTotalItems } = useCart();
   const insets = useSafeAreaInsets();
 
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favoriteProductIds, setFavoriteProductIds] = useState<number[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [allProducts, setAllProducts] = useState<ProductRow[]>([]);
-
-  const toggleFavorite = (productId: string) => {
-    setFavorites((prev) =>
-      prev.includes(productId)
-        ? prev.filter((id) => id !== productId)
-        : [...prev, productId]
-    );
-  };
+  const [isLoading, setIsLoading] = useState(true);
 
   const cartCount = getTotalItems();
 
-  useEffect(() => {
-    const fetchHomeData = async () => {
-      try {
-        // 1. Fetch Categories (Giới hạn 4 danh mục + 'Tất cả')
-        const categoryResult = await getCategories();
-        if (categoryResult.success && categoryResult.data) {
-          const filteredCategories = categoryResult.data
-            .filter((cat) => cat.category_id !== "all")
-            .slice(0, 4);
-          setCategories(filteredCategories);
-        }
+  const fetchHomeData = useCallback(async () => {
+    try {
+      setIsLoading(true);
+      const favorites = user?.id ? await getFavoriteProductIds(user.id) : [];
+      setFavoriteProductIds(favorites);
+      // 1. Fetch Categories (Giới hạn 4 danh mục + 'Tất cả')
+      const categoryResult = await getCategories();
+      if (categoryResult.success && categoryResult.data) {
+        const filteredCategories = categoryResult.data
+          .filter((cat) => cat.category_id !== "all")
+          .slice(0, 4);
+        setCategories(filteredCategories);
+      }
 
-        // 2. Fetch Popular Products (Giới hạn 4 sản phẩm)
-        // Gọi getProducts với limit = 4 và page = 1
-        const productResult = await getProducts();
-        if (productResult.success && productResult.data) {
-          setAllProducts(productResult.data);
-        } else {
-          Toast.show({
-            type: "error",
-            text1: "Lỗi API",
-            text2: productResult.message || "Lỗi tải sản phẩm.",
-            visibilityTime: 4000,
-          });
-        }
-      } catch (e: any) {
+      // 2. Fetch Popular Products (Giới hạn 4 sản phẩm)
+      // Gọi getProducts với limit = 4 và page = 1
+      const productResult = await getProducts();
+      if (productResult.success && productResult.data) {
+        setAllProducts(productResult.data);
+      } else {
         Toast.show({
           type: "error",
-          text1: "Lỗi hệ thống",
-          text2: e.message,
+          text1: "Lỗi API",
+          text2: productResult.message || "Lỗi tải sản phẩm.",
           visibilityTime: 4000,
         });
-      } finally {
       }
-    };
-    fetchHomeData();
-  }, []);
+    } catch (e: any) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi hệ thống",
+        text2: e.message,
+        visibilityTime: 4000,
+      });
+    } finally {
+      setIsLoading(false);
+    }
+  }, [user?.id]);
+  useFocusEffect(
+    useCallback(() => {
+      setIsLoading(true);
+      fetchHomeData();
+    }, [fetchHomeData])
+  );
+
+  const toggleFavorite = async (productId: number) => {
+    if (!user || !user.id) {
+      Toast.show({
+        type: "info",
+        text1: "Thông báo",
+        text2: "Vui lòng đăng nhập để thêm yêu thích.",
+        visibilityTime: 2000,
+      });
+      return;
+    }
+
+    const isCurrentlyFavorite = favoriteProductIds.includes(productId);
+    let newIds: number[];
+
+    if (isCurrentlyFavorite) {
+      newIds = favoriteProductIds.filter((id) => id !== productId);
+    } else {
+      newIds = [...favoriteProductIds, productId];
+    }
+
+    // Tối ưu hóa UI: Cập nhật UI ngay lập tức
+    setFavoriteProductIds(newIds);
+
+    try {
+      // Gọi API cập nhật cột Favorites trên bảng User
+      const result = await updateFavoriteProductIds(user.id, newIds);
+
+      if (result.success) {
+        Toast.show({
+          type: "success",
+          text1: isCurrentlyFavorite ? "Đã xóa" : "Đã thêm",
+          text2: isCurrentlyFavorite
+            ? "Đã xóa khỏi mục yêu thích"
+            : "Đã thêm vào mục yêu thích",
+          visibilityTime: 1500,
+        });
+      } else {
+        Toast.show({
+          type: "error",
+          text1: "Lỗi đồng bộ",
+          text2: result.message || "Không thể cập nhật yêu thích.",
+          visibilityTime: 3000,
+        });
+        // Nếu API thất bại, tải lại trạng thái gốc để đồng bộ hóa
+        fetchHomeData();
+      }
+    } catch (e) {
+      console.error("API update failed:", e);
+      // Nếu thất bại, có thể chọn tải lại để đồng bộ lại
+      fetchHomeData();
+    }
+  };
+
   const popularProducts = allProducts.slice(0, 4);
   const handleAddToCart = (product: ProductRow) => {
     const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(
@@ -129,15 +186,14 @@ export function HomeRoute() {
     };
     addToCart(newItem);
   };
-
-  // 💡 HÀM ĐIỀU HƯỚNG SỬ DỤNG ROUTER
-  const handleNavigate = (path: string, id?: string) => {
-    // 💡 Ép kiểu an toàn (as any) để Router chấp nhận đường dẫn đã xây dựng
-    router.push(
-      id ? ({ pathname: path, params: { id } } as any) : (path as any)
+  if (isLoading && allProducts.length === 0) {
+    return (
+      <View style={[styles.fullContainer, styles.loadingContainer]}>
+        <ActivityIndicator size="large" color={COLORS.emerald600} />
+        <Text style={styles.loadingText}>Đang tải dữ liệu...</Text>
+      </View>
     );
-  };
-
+  }
   return (
     <View style={styles.fullContainer}>
       <ScrollView
@@ -181,6 +237,7 @@ export function HomeRoute() {
               placeholder="Tìm kiếm đồ uống..."
               placeholderTextColor="#94a3b8"
               style={styles.searchInput}
+              onPressIn={() => router.push("/(tabs)/menu")}
             />
           </View>
         </LinearGradient>
@@ -245,76 +302,63 @@ export function HomeRoute() {
             numColumns={2}
             scrollEnabled={false}
             columnWrapperStyle={styles.productRow}
-            renderItem={({ item: product }) => (
-              <TouchableOpacity
-                key={product.id}
-                onPress={() =>
-                  router.push({
-                    pathname: "/product-detail",
-                    params: { id: product.id },
-                  })
-                }
-                style={styles.productCard}
-                activeOpacity={0.8}
-              >
-                {/* Image & Favorite Button */}
-                <View style={styles.productImageWrapper}>
-                  <Image
-                    source={{ uri: product.image }}
-                    style={styles.productImage}
-                  />
-                  <TouchableOpacity
-                    onPress={(e) => {
-                      // @ts-ignore e.stopPropagation();
-                      toggleFavorite(product.id);
-                    }}
-                    style={styles.favoriteButton}
-                  >
-                    <Ionicons
-                      name={
-                        favorites.includes(product.id.toString())
-                          ? "heart"
-                          : "heart-outline"
-                      }
-                      size={20}
-                      color={
-                        favorites.includes(product.id.toString())
-                          ? "#ef4444"
-                          : "#94a3b8"
-                      }
-                    />
-                  </TouchableOpacity>
-                </View>
+            renderItem={({ item: product }) => {
+              const isFavorite = favoriteProductIds.includes(product.id);
 
-                {/* Product Details */}
-                <View style={styles.productDetails}>
-                  <Text numberOfLines={2} style={styles.productNameSmall}>
-                    {" "}
-                    {product.name}{" "}
-                  </Text>
-                  {/* <View style={styles.ratingContainer}>
-                    <Ionicons
-                      name="star"
-                      size={16}
-                      color="#fbbf24"
-                      style={{ top: 1 }}
+              return (
+                <TouchableOpacity
+                  key={product.id}
+                  onPress={() =>
+                    router.push({
+                      pathname: "/product-detail",
+                      params: { id: product.id },
+                    })
+                  }
+                  style={styles.productCard}
+                  activeOpacity={0.8}
+                >
+                  {/* Image & Favorite Button */}
+                  <View style={styles.productImageWrapper}>
+                    <Image
+                      source={{ uri: product.image }}
+                      style={styles.productImage}
                     />
-                  </View> */}
-                  <View style={styles.priceContainer}>
-                    <Text style={styles.productPrice}>
-                      {product.price.toLocaleString("vi-VN")}đ{" "}
-                    </Text>
-                    {/* NÚT THÊM VÀO GIỎ HÀNG */}
                     <TouchableOpacity
-                      onPress={() => handleAddToCart(product)} // ✅ GỌI ADD TO CART
-                      style={styles.addButton}
+                      onPress={(e) => {
+                        e.stopPropagation?.();
+                        toggleFavorite(product.id);
+                      }}
+                      style={styles.favoriteButton}
                     >
-                      <Text style={styles.addButtonText}>+</Text>
+                      <Ionicons
+                        name={isFavorite ? "heart" : "heart-outline"}
+                        size={20}
+                        color={isFavorite ? "#ef4444" : "#94a3b8"}
+                      />
                     </TouchableOpacity>
                   </View>
-                </View>
-              </TouchableOpacity>
-            )}
+
+                  {/* Product Details */}
+                  <View style={styles.productDetails}>
+                    <Text numberOfLines={2} style={styles.productNameSmall}>
+                      {product.name}
+                    </Text>
+
+                    <View style={styles.priceContainer}>
+                      <Text style={styles.productPrice}>
+                        {Number(product.price).toLocaleString("vi-VN")}đ
+                      </Text>
+                      <TouchableOpacity
+                        onPress={() => handleAddToCart(product)}
+                        style={styles.addButton}
+                      >
+                        <Text style={styles.addButtonText}>+</Text>
+                      </TouchableOpacity>
+                    </View>
+                  </View>
+                </TouchableOpacity>
+              );
+            }}
           />
         </View>
 
@@ -574,5 +618,16 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: "bold",
     lineHeight: 18,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: "center",
+    alignItems: "center",
+    backgroundColor: "#fff",
+  },
+  loadingText: {
+    marginTop: 10,
+    fontSize: 16,
+    color: "#333",
   },
 });

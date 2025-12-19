@@ -1,24 +1,19 @@
-import React, { useState } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  TextInput,
-  Dimensions,
-  Image,
-  Platform,
-  Alert,
-} from "react-native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import { useLocalSearchParams, useRouter } from "expo-router";
+import React, { useState } from "react";
+import {
+  ScrollView,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableOpacity,
+  View,
+} from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
-import { useLocalSearchParams, useRouter } from "expo-router";
 // 💡 IMPORTS COMPONENTS & CONTEXTS
 import { Header } from "../components/Header";
-import { useOrders, Order } from "../context/OrderContext";
 // ⚠️ Giả định CartItem structure từ Context
 interface CartItem {
   id: string;
@@ -29,7 +24,6 @@ interface CartItem {
   size: string;
   ice: number;
   sugar: number;
-  toppings: string[];
 }
 
 // --- Dữ liệu Mock và Constants ---
@@ -37,44 +31,44 @@ interface ReviewPageProps {
   goBack: () => void;
 }
 
-// Giả định order data (dùng để render)
-const mockOrder: Order = {
-  id: "ORD001",
-  items: [
-    {
-      id: "1",
-      productId: "1",
-      name: "Trà Sữa Trân Châu",
-      image:
-        "https://images.unsplash.com/photo-1645467148762-6d7fd24d7acf?w=400",
-      price: 50000,
-      quantity: 2,
-      size: "L",
-      ice: 70,
-      sugar: 50,
-      toppings: ["Trân châu"],
-    },
-    {
-      id: "2",
-      productId: "2",
-      name: "Cà Phê Muối",
-      image:
-        "https://images.unsplash.com/photo-1645467148762-6d7fd24d7acf?w=400",
-      price: 40000,
-      quantity: 1,
-      size: "M",
-      ice: 100,
-      sugar: 50,
-      toppings: [],
-    },
-  ],
-  total: 140000,
-  status: "completed",
-  createdAt: new Date(),
-  deliveryAddress: "123 Huệ",
-  paymentMethod: "cash",
-  phone: "123",
-};
+// // Giả định order data (dùng để render)
+// const mockOrder: Order = {
+//   id: "ORD001",
+//   items: [
+//     {
+//       id: "1",
+//       productId: "1",
+//       name: "Trà Sữa Trân Châu",
+//       image:
+//         "https://images.unsplash.com/photo-1645467148762-6d7fd24d7acf?w=400",
+//       price: 50000,
+//       quantity: 2,
+//       size: "L",
+//       ice: 70,
+//       sugar: 50,
+
+//     },
+//     {
+//       id: "2",
+//       productId: "2",
+//       name: "Cà Phê Muối",
+//       image:
+//         "https://images.unsplash.com/photo-1645467148762-6d7fd24d7acf?w=400",
+//       price: 40000,
+//       quantity: 1,
+//       size: "M",
+//       ice: 100,
+//       sugar: 50,
+
+//     },
+//   ],
+//   total: 140000,
+//   status: "completed",
+//   createdAt: new Date(),
+//   deliveryAddress: "123 Huệ",
+//   paymentMethod: "cash",
+//   phone: "123",
+// };
 
 const COLORS = {
   bg: "#f8fafc",
@@ -136,9 +130,9 @@ export function ReviewPage({ goBack }: ReviewPageProps) {
   const { orderId } = useLocalSearchParams(); // ✅ LẤY ID TỪ URL
   const orderIdString = orderId as string; // Đảm bảo kiểu string
 
-  const { getOrderById } = useOrders();
+  // const { getOrderById } = useOrders();
   // Sử dụng orderIdString để lấy dữ liệu thực, hoặc dùng mock nếu không có ID
-  const order = getOrderById(orderIdString) || mockOrder;
+  const order = "getOrderById(orderIdString)";
 
   const [ratings, setRatings] = useState<{ [key: string]: number }>({});
   const [reviews, setReviews] = useState<{ [key: string]: string }>({});
@@ -156,13 +150,11 @@ export function ReviewPage({ goBack }: ReviewPageProps) {
   const handleSubmitReview = () => {
     // 💡 LOGIC TOAST VÀ GO BACK
     Toast.show({
-      type: "success_custom", // ✅ Tên loại tùy chỉnh
+      type: "success", // ✅ Tên loại tùy chỉnh
       text1: "Cảm ơn bạn đã đánh giá!",
       text2: `Bạn nhận được +${pointsEarned} điểm`,
       position: "top",
     });
-
-    // Giả lập độ trễ ngắn cho người dùng thấy Toast, sau đó quay lại
     setTimeout(() => {
       router.back();
     }, 500);
@@ -203,7 +195,7 @@ export function ReviewPage({ goBack }: ReviewPageProps) {
           </View>
 
           {/* Review Each Product */}
-          <View style={styles.card}>
+          {/* <View style={styles.card}>
             <Text style={styles.productReviewTitle}>Đánh giá sản phẩm</Text>
             <View style={styles.reviewsList}>
               {order.items.map((item) => (
@@ -243,7 +235,7 @@ export function ReviewPage({ goBack }: ReviewPageProps) {
                 </View>
               ))}
             </View>
-          </View>
+          </View> */}
 
           {/* Overall Review */}
           <View style={styles.card}>

@@ -11,6 +11,7 @@ import {
   OrderDetailRow,
   OrderRow,
   updateOrder as updateOrderApi,
+  updateVoucherUsedStatus,
 } from "../app/services/baserowApi";
 
 // ----------------------------------------------------------------------
@@ -57,12 +58,15 @@ interface OrderContextType {
   getOrderItems: (orderId: string) => Promise<OrderDetailRow[] | null>;
 }
 
-
-
-
 const OrderContext = createContext<OrderContextType | undefined>(undefined);
-const mapOrderRowToOrder = async (row: OrderRow, details: OrderDetailRow[]): Promise<Order> => {
-  const getLinkRowValue = (linkRow: any, columnKey: string = "value"): string | undefined => {
+const mapOrderRowToOrder = async (
+  row: OrderRow,
+  details: OrderDetailRow[]
+): Promise<Order> => {
+  const getLinkRowValue = (
+    linkRow: any,
+    columnKey: string = "value"
+  ): string | undefined => {
     if (!linkRow || linkRow.length === 0) return undefined;
     return linkRow[0][columnKey] || linkRow[0].value;
   };
@@ -71,15 +75,15 @@ const mapOrderRowToOrder = async (row: OrderRow, details: OrderDetailRow[]): Pro
   const deliveryAddressText =
     row.address && row.address.length > 0
       ? getLinkRowValue(row.address, "address") ||
-      getLinkRowValue(row.address, "value") ||
-      "Địa chỉ không rõ"
+        getLinkRowValue(row.address, "value") ||
+        "Địa chỉ không rõ"
       : "Địa chỉ không rõ";
 
   // Voucher (Lấy tên/mã voucher từ Link Row Voucher)
   const voucherName =
     row.voucher && row.voucher.length > 0
       ? getLinkRowValue(row.voucher, "name") ||
-      getLinkRowValue(row.voucher, "value")
+        getLinkRowValue(row.voucher, "value")
       : undefined;
 
   // ✅ FIX CRITICAL: Xử lý Link Row/Object cho Status
@@ -161,7 +165,7 @@ const mapOrderRowToOrder = async (row: OrderRow, details: OrderDetailRow[]): Pro
       return {
         id: String(detail.id),
         productId: String(product.id),
-        name: product.name,       // hoặc product.value tùy API bạn
+        name: product.name, // hoặc product.value tùy API bạn
         image: product.image,
         price: detail.price ?? product.price ?? 0,
         quantity: detail.quantity ?? 1,
@@ -172,8 +176,6 @@ const mapOrderRowToOrder = async (row: OrderRow, details: OrderDetailRow[]): Pro
       };
     })
   );
-
-
 
   return {
     id: row.id.toString(),
@@ -234,7 +236,7 @@ export function OrderProvider({ children }: { children: ReactNode }) {
 
   const showSuccessToast = (message: string) => {
     Toast.show({
-      type: "success_custom",
+      type: "success",
       text1: "Đơn hàng",
       text2: message,
       position: "top",
@@ -270,6 +272,18 @@ export function OrderProvider({ children }: { children: ReactNode }) {
       });
 
       if (result.success && result.data) {
+        if (orderData.voucherId) {
+          const voucherUpdateResult = await updateVoucherUsedStatus(
+            orderData.voucherId,
+            true
+          );
+          if (!voucherUpdateResult.success) {
+            console.error(
+              `VOUCHER ERROR: Không thể đánh dấu Voucher ID ${orderData.voucherId} đã dùng.`
+            );
+            // Tiếp tục luồng thành công mặc dù có lỗi phụ
+          }
+        }
         showSuccessToast("Đặt hàng thành công!");
         if (onSuccess) onSuccess();
       } else {
@@ -324,7 +338,6 @@ export function OrderProvider({ children }: { children: ReactNode }) {
       return null;
     }
   };
-
 
   return (
     <OrderContext.Provider value={{ createOrder, cancelOrder, getOrderItems }}>

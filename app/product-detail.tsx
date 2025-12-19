@@ -445,7 +445,7 @@ export function ProductDetailPage() {
                         />
                       </View>
                       <Text style={styles.relatedPriceText}>
-                        {relatedProduct.price.toLocaleString("vi-VN")}đ
+                        {Number(relatedProduct.price).toLocaleString("vi-VN")}đ
                       </Text>
                     </View>
                   </TouchableOpacity>

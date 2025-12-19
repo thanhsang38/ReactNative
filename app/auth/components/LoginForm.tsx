@@ -123,9 +123,10 @@ export function LoginForm() {
       }
 
       Toast.show({
-        type: "success_custom",
+        type: "custom",
         text1: "Đăng nhập thành công!",
         text2: "Chào mừng tới Drink Xann.",
+        props: { variant: "success" },
       });
 
       setTimeout(() => {
@@ -140,6 +141,9 @@ export function LoginForm() {
     } finally {
       setIsSubmitting(false);
     }
+  };
+  const handleForgotPassword = () => {
+    router.push("/ForgotPasswordScreen");
   };
 
   const isButtonDisabled = isSubmitting || isLoading;
@@ -238,6 +242,10 @@ export function LoginForm() {
           />
           <Text style={styles.checkboxLabel}>Ghi nhớ</Text>
         </View>
+        <TouchableOpacity onPress={handleForgotPassword}>
+          {/* ✅ THÊM ONPRESS */}
+          <Text style={styles.forgotPasswordText}>Quên mật khẩu?</Text>
+        </TouchableOpacity>
       </View>
 
       {/* SUBMIT */}
@@ -336,5 +344,10 @@ const styles = StyleSheet.create({
     color: "white",
     fontSize: 18,
     fontWeight: "bold",
+  },
+  forgotPasswordText: {
+    color: COLORS.primary,
+    fontSize: 16,
+    marginLeft: 100,
   },
 });

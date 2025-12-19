@@ -15,6 +15,7 @@ export interface UserRow {
   gender?: "male" | "female" | "other" | null;
   avatar?: string | null;
   password_hash: string;
+  favorites?: { id: number }[] | [];
 }
 
 export interface ProductRow {
@@ -82,7 +83,20 @@ export interface OrderRow {
   orderDetail: [{ id: number }] | []; // Link to OrderDetails
   voucher: [{ id: number; name: string }] | []; // Bao gồm tên Voucher
 }
-
+export interface VoucherRow {
+  id: number;
+  Name: string; // Tên voucher
+  code: string;
+  description: string;
+  discount: number; // Giá trị số
+  minOrder: number;
+  maxDiscount?: number | null;
+  expiry: string; // Baserow trả về chuỗi ISO
+  type: "percent" | "fixed" | "shipping"; // Kiểu single select
+  used: boolean;
+  order_voucher: [{ id: number }] | []; // Link Row
+  user: [{ id: number }] | []; // Link Row (Người sở hữu)
+}
 interface BaserowListResponse<T> {
   count: number;
   next: string | null;
@@ -96,6 +110,9 @@ const CATEGORIES_TABLE_ID = 760466;
 const USER_ADDRESSES_TABLE_ID = 768059;
 const ORDERS_TABLE_ID = 760468;
 const ORDER_DETAILS_TABLE_ID = 760469;
+const VOUCHERS_TABLE_ID = 769574;
+const USER_FAVORITES_FIELD = "field_6574405";
+
 // -------------------------------------------------------------
 const normalizeCategoryName = (name: string): string => {
   if (!name) return "";
@@ -460,6 +477,29 @@ export const getAllProductsForRelated = async (): Promise<ProductRow[]> => {
     return [];
   }
 };
+export const getFavoriteProductsByUser = async (
+  userId: number
+): Promise<ProductRow[]> => {
+  const filters = {
+    filter_type: "AND",
+    filters: [
+      {
+        type: "link_row_has",
+        field: "favorites", // 👈 TÊN CỘT LINK ROW Ở PRODUCT
+        value: userId.toString(),
+      },
+    ],
+  };
+
+  const endpoint = `${PRODUCTS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
+    JSON.stringify(filters)
+  )}`;
+
+  const res = await axiosClient.get(endpoint);
+  console.log("FAVORITES RAW RESPONSE:", res);
+
+  return res.results ?? [];
+};
 
 // -------------------------------------------------------------
 // bảng danh mục
@@ -624,7 +664,6 @@ export const createOrder = async (
     voucherId?: number;
   }
 ): Promise<{ success: boolean; data?: OrderRow; message?: string }> => {
-  // 1. CHUẨN BỊ PAYLOAD CHO ORDER HEADER
   const orderHeaderPayload = {
     name: `ORD-${new Date()
       .toISOString()
@@ -684,9 +723,6 @@ export const createOrder = async (
   }
 };
 
-/**
- * ✅ FIX: Lấy danh sách Đơn hàng theo User ID
- */
 export const getOrders = async (
   userId: number
 ): Promise<{ success: boolean; data?: OrderRow[]; message?: string }> => {
@@ -716,9 +752,6 @@ export const getOrders = async (
   }
 };
 
-/**
- * ⭐ Lấy chi tiết 1 đơn hàng theo ID
- */
 export const getOrderById = async (
   orderId: number
 ): Promise<{ success: boolean; data?: any; message?: string }> => {
@@ -847,5 +880,119 @@ export const updateOrder = async (
   } catch (error: any) {
     console.error("❌ [UPDATE ORDER ERROR]", error.response?.data || error);
     return { success: false, message: "Không thể cập nhật đơn hàng." };
+  }
+};
+//----------------------------------------------------------------------------
+//Bảng voucher
+//----------------------------------------------------------------------------
+export const getVouchers = async (
+  userId: number
+): Promise<{ success: boolean; data?: VoucherRow[]; message?: string }> => {
+  const filters = JSON.stringify({
+    filter_type: "AND",
+    filters: [
+      {
+        type: "link_row_has",
+        field: "user", // ✅ Cột Link Row tới bảng Users
+        value: userId.toString(),
+      },
+    ],
+  });
+
+  const endpoint = `${VOUCHERS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
+    filters
+  )}`;
+
+  try {
+    const response: BaserowListResponse<VoucherRow> = await axiosClient.get(
+      endpoint
+    );
+    const normalizedVouchers: VoucherRow[] = response.results.map(
+      (voucher) => ({
+        ...voucher,
+        type: (voucher.type as any)?.value || (voucher.type as any),
+        expiry: (voucher.expiry as string)?.split("T")[0] || "", // Chỉ giữ lại ngày (YYYY-MM-DD)
+      })
+    ) as VoucherRow[];
+
+    return { success: true, data: normalizedVouchers };
+  } catch (error: any) {
+    console.error("❌ [GET VOUCHERS ERROR]", error.response?.data || error);
+    return { success: false, message: "Không thể tải danh sách voucher." };
+  }
+};
+export const updateVoucherUsedStatus = async (
+  voucherId: number,
+  usedStatus: boolean
+): Promise<{ success: boolean; message?: string }> => {
+  const endpoint = `${VOUCHERS_TABLE_ID}/${voucherId}/`;
+
+  try {
+    console.log(
+      `🚀 [VOUCHER UPDATE] Cập nhật Voucher ID ${voucherId} thành used=${usedStatus}`
+    );
+
+    await axiosClient.patch(
+      endpoint,
+      { used: usedStatus },
+      {
+        params: { user_field_names: true },
+      }
+    );
+
+    console.log(`✅ [VOUCHER UPDATE SUCCESS]`);
+    return { success: true };
+  } catch (error: any) {
+    console.error("❌ [VOUCHER UPDATE ERROR]", error.response?.data || error);
+    return {
+      success: false,
+      message: "Không thể cập nhật trạng thái voucher.",
+    };
+  }
+};
+//-------------------------------------------------------------------------------
+//Bảng yêu thích
+//-------------------------------------------------------------------------------
+
+export const getFavoriteProductIds = async (
+  userId: number
+): Promise<number[]> => {
+  const endpoint = `${USERS_TABLE_ID}/${userId}/?user_field_names=true`;
+
+  try {
+    const response: UserRow = await axiosClient.get(endpoint);
+
+    const favoritesLinkRow = response.favorites;
+
+    if (favoritesLinkRow && Array.isArray(favoritesLinkRow)) {
+      // Trích xuất ID từ Link Row
+      return favoritesLinkRow.map((f) => f.id);
+    }
+    return [];
+  } catch (error) {
+    console.error("❌ [GET FAVORITES ERROR]", error);
+    return [];
+  }
+};
+export const updateFavoriteProductIds = async (
+  userId: number,
+  productIds: number[]
+): Promise<{ success: boolean; message?: string }> => {
+  const payload = {
+    [USER_FAVORITES_FIELD]: productIds, // ✅ QUAN TRỌNG
+  };
+
+  const endpoint = `${USERS_TABLE_ID}/${userId}/`;
+
+  try {
+    console.log("🚀 PATCH FAVORITES:", payload);
+    await axiosClient.patch(endpoint, payload);
+    return { success: true };
+  } catch (error: any) {
+    console.error("❌ [UPDATE FAVORITES ERROR]", error.response?.data || error);
+    return {
+      success: false,
+      message: "Không thể cập nhật danh sách yêu thích.",
+    };
   }
 };

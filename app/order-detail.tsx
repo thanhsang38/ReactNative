@@ -12,14 +12,16 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
-
+import Toast from "react-native-toast-message";
 // 💡 IMPORTS COMPONENTS & CONTEXTS
 import { Header } from "../components/Header";
+import { useAuth } from "../context/AuthContext";
+import { CartItem, useCart } from "../context/CartContext";
 import { useOrders } from "../context/OrderContext";
 import { getOrderById } from "./services/baserowApi";
-
 // --- Types & Config ---
 type Page = string;
+const SHIPPING_FEE_DEFAULT = 20000;
 type FeatherIconName = ComponentProps<typeof Feather>["name"];
 type OrderStatus =
   | "pending"
@@ -124,7 +126,8 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
   console.log("Router ID received:", orderId);
   const insets = useSafeAreaInsets();
   const router = useRouter();
-
+  const { user } = useAuth();
+  const { addToCart } = useCart();
   const headerHeight = 10 + insets.top;
 
   const [order, setOrder] = React.useState<any>(null);
@@ -174,7 +177,62 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
       </View>
     );
   }
+  const handleRepurchase = () => {
+    if (!order || !order.orderDetail || order.orderDetail.length === 0) {
+      Toast.show({
+        type: "error",
+        text1: "Lỗi",
+        text2: "Không có sản phẩm nào để mua lại.",
+        visibilityTime: 2000,
+      });
+      return;
+    }
 
+    let itemsAddedCount = 0;
+
+    // ✅ LẶP QUA TẤT CẢ CÁC MỤC TRONG ĐƠN HÀNG VÀ THÊM VÀO GIỎ
+    order.orderDetail.forEach((item: any) => {
+      if (item.product && item.quantity > 0) {
+        const productData = item.product;
+
+        // Chuẩn bị CartItem Payload (Sử dụng các giá trị từ order detail)
+        const itemToAdd: Omit<CartItem, "id"> = {
+          productId: productData.id.toString(),
+          name: productData.name || "Sản phẩm",
+          image: productData.image || "https://placehold.co/64x64",
+          price: parseFloat(item.price) || 0,
+          quantity: parseInt(item.quantity) || 1,
+
+          // Lấy các options từ order detail
+          size: (item.size || "M") as "S" | "M" | "L",
+          ice: item.ice || 0,
+          sugar: item.sugar || 0,
+          isDrink: item.is_drink || false,
+        };
+
+        addToCart(itemToAdd);
+        itemsAddedCount += itemToAdd.quantity;
+      }
+    });
+
+    if (itemsAddedCount > 0) {
+      Toast.show({
+        type: "success",
+        text1: "Đã thêm vào giỏ hàng",
+        text2: `Đã thêm ${itemsAddedCount} sản phẩm từ đơn hàng này.`,
+        visibilityTime: 2000,
+      });
+      // ✅ CHUYỂN HƯỚNG SANG TRANG GIỎ HÀNG
+      router.push("/cart");
+    } else {
+      Toast.show({
+        type: "info",
+        text1: "Thông báo",
+        text2: "Không có sản phẩm hợp lệ để thêm.",
+        visibilityTime: 2000,
+      });
+    }
+  };
   // Xử lý trạng thái từ API (có thể là object hoặc string)
   const statusValue =
     typeof order.status === "object" ? order.status.value : order.status;
@@ -210,28 +268,36 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
   };
 
   const subtotal = calculateSubtotal();
-  const total = parseFloat(order.amount) || subtotal;
-
+  const finalAmount = parseFloat(order.amount) || subtotal;
+  const hasShippingVoucher = order.voucher?.name
+    ?.toLowerCase()
+    .includes("ship");
+  const shippingFeeCharged = hasShippingVoucher ? 0 : SHIPPING_FEE_DEFAULT;
+  const discountAmount = Math.max(
+    0,
+    subtotal - (finalAmount - shippingFeeCharged)
+  );
+  const finalTotal = finalAmount; // Tổng cuối cùng đã tính toán
   const handleCancelOrder = () => {
     Alert.alert("Xác nhận Hủy", "Bạn có chắc muốn hủy đơn hàng này?", [
       { text: "Không", style: "cancel" },
       {
         text: "Hủy Đơn",
         style: "destructive",
-        onPress: () => {
-          if (cancelOrder) {
-            cancelOrder(order.id);
+        onPress: async () => {
+          try {
+            await cancelOrder(order.id); // ⬅️ CHỜ API + CONTEXT UPDATE
+            router.back(); // ⬅️ QUAY LẠI SAU KHI XONG
+          } catch (e) {
+            Toast.show({
+              type: "error",
+              text1: "Lỗi",
+              text2: "Không thể hủy đơn hàng.",
+            });
           }
-          // router.replace({
-          //   pathname: "/(tabs)/orders",
-          // });
         },
       },
     ]);
-  };
-
-  const handleRepurchase = () => {
-    router.push("/(tabs)/menu");
   };
 
   const handleRating = () => {
@@ -381,6 +447,18 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
               </View>
               <View style={styles.infoRow}>
                 <Feather
+                  name="phone"
+                  size={20}
+                  color={COLORS.emerald600}
+                  style={styles.infoIcon}
+                />
+                <View>
+                  <Text style={styles.infoLabel}>Số điện thoại</Text>
+                  <Text style={styles.infoValue}>{user?.phone || "N/A"}</Text>
+                </View>
+              </View>
+              <View style={styles.infoRow}>
+                <Feather
                   name="credit-card"
                   size={20}
                   color={COLORS.emerald600}
@@ -463,15 +541,30 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                   {subtotal.toLocaleString("vi-VN")}đ
                 </Text>
               </View>
+
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
-                <Text style={styles.summaryValueFree}>Miễn phí</Text>
+
+                <Text
+                  style={
+                    shippingFeeCharged === 0
+                      ? styles.summaryValueFree
+                      : styles.summaryValue
+                  }
+                >
+                  {shippingFeeCharged === 0
+                    ? "Miễn phí"
+                    : shippingFeeCharged.toLocaleString("vi-VN") + "đ"}
+                  {/* ✅ PHÍ VẬN CHUYỂN */}
+                </Text>
               </View>
-              {order.voucher && (
+
+              {discountAmount > 0 && (
                 <View style={styles.summaryRow}>
                   <Text style={styles.summaryLabel}>Giảm giá</Text>
                   <Text style={styles.summaryValueDiscount}>
-                    -{(subtotal - total).toLocaleString("vi-VN")}đ
+                    -{discountAmount.toLocaleString("vi-VN")}đ
+                    {/* ✅ GIẢM GIÁ */}
                   </Text>
                 </View>
               )}
@@ -479,7 +572,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
               <View style={styles.summaryRow}>
                 <Text style={styles.summaryTotalLabel}>Tổng thanh toán</Text>
                 <Text style={styles.summaryTotalPrice}>
-                  {total.toLocaleString("vi-VN")}đ
+                  {finalTotal.toLocaleString("vi-VN")}đ
                 </Text>
               </View>
             </View>
@@ -851,14 +944,4 @@ const styles = StyleSheet.create({
     alignItems: "center",
     backgroundColor: COLORS.bg,
   },
-
-  // fullContainer: {
-  //   flex: 1,
-  //   backgroundColor: COLORS.bg,
-  // },
-  // errorText: {
-  //   padding: 20,
-  //   color: COLORS.red500,
-  //   textAlign: 'center',
-  // },
 });

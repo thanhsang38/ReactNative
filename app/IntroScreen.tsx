@@ -64,7 +64,7 @@ const introSlides = [
   {
     id: 3,
     title: "Giao hàng nhanh chóng",
-    description: "Nhanh – Nóng – Tươi mới",
+    description: "Nhanh - Nóng - Tươi mới",
     image:
       "https://images.unsplash.com/photo-1695654400275-641a445a762c?w=1080",
     iconName: "Zap",

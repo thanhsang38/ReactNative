@@ -1,11 +1,12 @@
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
-import { Redirect, Stack, useRouter } from "expo-router";
+import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React from "react";
 import { StyleSheet } from "react-native";
 import "react-native-reanimated";
 import Toast from "react-native-toast-message";
+import { ChatbotFAB } from "../components/ChatbotFAB";
 import { toastConfig } from "../components/CustomToast";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { CartProvider } from "../context/CartContext";
@@ -33,7 +34,9 @@ function RootLayoutContent() {
   const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null);
   const router = useRouter();
 
-  const isLoggedIn = !!user;
+  const segments = useSegments();
+  const isUserAuthenticated = !!user;
+  const shouldShowFab = isUserAuthenticated && segments[0] === "(tabs)";
 
   React.useEffect(() => {
     const loadIntroState = async () => {
@@ -63,7 +66,6 @@ function RootLayoutContent() {
 
   return (
     <>
-      {isLoggedIn && <Redirect href="/(tabs)" />}
       <Stack screenOptions={{ headerShown: false }}>
         {/* 🔥 Mặn modal / pages chung (cả logged-in và logged-out đều dùng được nếu cần) */}
 
@@ -79,6 +81,14 @@ function RootLayoutContent() {
         <Stack.Screen name="edit-profile" options={{ presentation: "modal" }} />
         <Stack.Screen name="Review" options={{ presentation: "modal" }} />
         <Stack.Screen
+          name="ChatbotScreen"
+          options={{ presentation: "modal" }}
+        />
+        <Stack.Screen
+          name="ForgotPasswordScreen"
+          options={{ presentation: "modal" }}
+        />
+        <Stack.Screen
           name="notifications"
           options={{ presentation: "modal" }}
         />
@@ -91,8 +101,8 @@ function RootLayoutContent() {
         />
 
         {/* Nếu muốn tạo 1 modal chung */}
-        <Stack.Screen name="modal" options={{ presentation: "modal" }} />
       </Stack>
+      {shouldShowFab && <ChatbotFAB bottomOffset={100} />}
     </>
   );
 }

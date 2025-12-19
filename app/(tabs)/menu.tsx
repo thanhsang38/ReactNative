@@ -1,7 +1,7 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router"; // 💡 IMPORT ROUTER
-import React, { useEffect, useMemo, useState } from "react";
+import { useFocusEffect, useRouter } from "expo-router"; // 💡 IMPORT ROUTER
+import React, { useCallback, useMemo, useState } from "react";
 import {
   Dimensions,
   FlatList,
@@ -14,8 +14,8 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import { useAuth } from "../../context/AuthContext";
 import { FilterModal } from "../FilterModal"; // 💡 IMPORT MODAL LỌC
-
 // --- Imports Logic Context ---
 import Toast from "react-native-toast-message";
 import { Header } from "../../components/Header"; // 💡 Component Header thực tế
@@ -23,8 +23,10 @@ import { CartItem, useCart } from "../../context/CartContext"; // 💡 Import Ca
 import {
   CategoryRow,
   getCategories,
+  getFavoriteProductIds,
   getProducts,
   ProductRow,
+  updateFavoriteProductIds,
 } from "../services/baserowApi";
 // --------------------------------------------------
 
@@ -34,6 +36,15 @@ interface FilterOptions {
   rating: number | null;
   sortBy: "popular" | "price-low" | "price-high" | "rating";
 }
+const normalizeText = (text: string) =>
+  text
+    .toLowerCase()
+    .normalize("NFD") // tách dấu
+    .replace(/[\u0300-\u036f]/g, "") // xóa dấu
+    .replace(/đ/g, "d")
+    .replace(/[^a-z0-9\s]/g, "")
+    .trim();
+
 const PaginationControls = ({
   currentPage,
   totalPages,
@@ -120,11 +131,11 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   const router = useRouter();
   const [selectedCategory, setSelectedCategory] = useState("all");
   const [searchQuery, setSearchQuery] = useState("");
-  const [favorites, setFavorites] = useState<string[]>([]);
+  const [favoriteProductIds, setFavoriteProductIds] = useState<number[]>([]);
   const insets = useSafeAreaInsets();
   const headerHeight = 50 + insets.top;
   const [showFilterModal, setShowFilterModal] = useState(false); // 💡 STATE MODAL
-
+  const { user } = useAuth();
   const [currentPage, setCurrentPage] = useState(1);
   const DRINK_CATEGORIES_NORMALIZED = [
     "sinh_to",
@@ -144,11 +155,12 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   });
   const { addToCart } = useCart();
 
-  const fetchAllData = async () => {
+  const fetchAllData = useCallback(async () => {
     setIsLoading(true);
     setError(null);
     try {
-      // Fetch Products (Tải toàn bộ)
+      const favorites = user?.id ? await getFavoriteProductIds(user.id) : [];
+      setFavoriteProductIds(favorites);
       const productResult = await getProducts(); // KHÔNG DÙNG PAGE/LIMIT Ở ĐÂY
       if (productResult.success && productResult.data) {
         setAllProducts(productResult.data); // Lưu toàn bộ data
@@ -181,11 +193,14 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [user?.id]);
 
-  useEffect(() => {
-    fetchAllData();
-  }, []);
+  useFocusEffect(
+    useCallback(() => {
+      setIsLoading(true);
+      fetchAllData();
+    }, [fetchAllData])
+  );
   const processedProducts = useMemo(() => {
     let filtered = allProducts;
 
@@ -197,11 +212,32 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     }
 
     // 2. Lọc theo TÌM KIẾM
-    if (searchQuery) {
-      const searchLower = searchQuery.toLowerCase();
-      filtered = filtered.filter((product) =>
-        product.name.toLowerCase().includes(searchLower)
-      );
+    if (searchQuery.trim()) {
+      const keyword = normalizeText(searchQuery);
+
+      // ✅ bỏ từ rỗng
+      const keywordWords = keyword
+        .split(" ")
+        .map((w) => w.trim())
+        .filter(Boolean);
+
+      filtered = filtered
+        .map((product) => {
+          const productText = normalizeText(
+            `${product.name} ${product.description ?? ""}`
+          );
+
+          let score = 0;
+          keywordWords.forEach((word) => {
+            if (productText.includes(word)) {
+              score += 1;
+            }
+          });
+
+          return { ...product, __score: score };
+        })
+        .filter((p) => p.__score > 0)
+        .sort((a, b) => b.__score - a.__score);
     }
 
     // 3. Lọc theo GIÁ & RATING (Tương tự logic FilterModal)
@@ -209,7 +245,6 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
       const matchesPrice =
         product.price >= filters.priceRange[0] &&
         product.price <= filters.priceRange[1];
-      // const matchesRating = !filters.rating || product.rating >= filters.rating;
       return matchesPrice;
     });
 
@@ -220,10 +255,6 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
           return a.price - b.price;
         case "price-high":
           return b.price - a.price;
-        // case "rating":
-        //   return b.rating - a.rating;
-        // case "popular":
-        //   return (b as any).soldCount - (a as any).soldCount;
         default:
           return 0;
       }
@@ -233,12 +264,57 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   const totalProductsFiltered = processedProducts.length;
   const totalPages = Math.ceil(totalProductsFiltered / ITEMS_PER_PAGE);
 
-  const toggleFavorite = (productId: number) => {
-    setFavorites((prev) =>
-      prev.includes(productId.toString()) // Chuyển sang string để so sánh
-        ? prev.filter((id) => id !== productId.toString())
-        : [...prev, productId.toString()]
-    );
+  const toggleFavorite = async (productId: number) => {
+    if (!user || !user.id) {
+      Toast.show({
+        type: "info",
+        text1: "Thông báo",
+        text2: "Vui lòng đăng nhập để thêm yêu thích.",
+        visibilityTime: 2000,
+      });
+      return;
+    }
+
+    const isCurrentlyFavorite = favoriteProductIds.includes(productId);
+    let newIds: number[];
+
+    if (isCurrentlyFavorite) {
+      newIds = favoriteProductIds.filter((id) => id !== productId);
+    } else {
+      newIds = [...favoriteProductIds, productId];
+    }
+
+    // Tối ưu hóa UI: Cập nhật UI ngay lập tức
+    setFavoriteProductIds(newIds);
+
+    try {
+      // Gọi API cập nhật cột Favorites trên bảng User
+      const result = await updateFavoriteProductIds(user.id, newIds);
+
+      if (result.success) {
+        Toast.show({
+          type: "success",
+          text1: isCurrentlyFavorite ? "Đã xóa" : "Đã thêm",
+          text2: isCurrentlyFavorite
+            ? "Đã xóa khỏi mục yêu thích"
+            : "Đã thêm vào mục yêu thích",
+          visibilityTime: 1500,
+        });
+      } else {
+        Toast.show({
+          type: "error",
+          text1: "Lỗi đồng bộ",
+          text2: result.message || "Không thể cập nhật yêu thích.",
+          visibilityTime: 3000,
+        });
+        // Nếu API thất bại, tải lại trạng thái gốc để đồng bộ hóa
+        fetchAllData();
+      }
+    } catch (e) {
+      console.error("API update failed:", e);
+      // Nếu thất bại, có thể chọn tải lại để đồng bộ lại
+      fetchAllData();
+    }
   };
 
   const displayedProducts = processedProducts.slice(
@@ -372,8 +448,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                   <View style={styles.categoryContent}>
                     <Text style={{ fontSize: 16 }}>{category.image}</Text>
                     <Text style={[styles.categoryText, { color: textColor }]}>
-                      {" "}
-                      {category.name}{" "}
+                      {category.name}
                     </Text>
                   </View>
                 </TouchableOpacity>
@@ -386,7 +461,8 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
             data={displayedProducts}
             keyExtractor={(item) => item.id.toString()}
             renderItem={({ item: product }) => {
-              const isFavorite = favorites.includes(product.id.toString());
+              const isFavorite = favoriteProductIds.includes(product.id);
+
               const heartIconName = isFavorite ? "heart" : "heart-outline";
 
               return (
@@ -404,7 +480,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                       />
                       <TouchableOpacity
                         onPress={(e) => {
-                          // @ts-ignore e.stopPropagation();
+                          e.stopPropagation?.();
                           toggleFavorite(product.id);
                         }}
                         style={styles.favoriteButton}
@@ -424,12 +500,10 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
 
                     <View style={styles.productDetails}>
                       <Text numberOfLines={2} style={styles.productName}>
-                        {" "}
-                        {product.name}{" "}
+                        {product.name}
                       </Text>
                       <Text style={styles.productDescription} numberOfLines={1}>
-                        {" "}
-                        {product.description}{" "}
+                        {product.description}
                       </Text>
                       {/* <View style={styles.ratingRow}>
                         <Ionicons
@@ -440,7 +514,6 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                       </View> */}
                       <View style={styles.productFooter}>
                         <Text style={styles.productPrice}>
-                          {" "}
                           {Number(product.price).toLocaleString("vi-VN")}đ
                         </Text>
                         <TouchableOpacity
