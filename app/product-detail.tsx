@@ -4,6 +4,7 @@ import { LinearGradient } from "expo-linear-gradient";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
+  ActivityIndicator,
   Image,
   ScrollView,
   StyleSheet,
@@ -14,46 +15,16 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { Header } from "../components/Header";
+import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
 import {
   getAllProductsForRelated,
   getProductById,
+  getReviewsByProduct,
   ProductRow,
+  ReviewRow,
 } from "./services/baserowApi";
 // --- Dữ liệu Mock và Types (Sử dụng dữ liệu từ file gốc của bạn) ---
-
-interface Review {
-  id: string;
-  productId: string;
-  userName: string;
-  userAvatar: string;
-  rating: number;
-  comment: string;
-  createdAt: Date;
-}
-
-// 💡 Dữ liệu Mock (Cần khớp với logic hiện tại)
-
-const reviews: Review[] = [
-  {
-    id: "r1",
-    productId: "34",
-    userName: "Nguyễn Văn A",
-    userAvatar: "https://i.pravatar.cc/150?img=1",
-    rating: 5,
-    comment: "Trà sữa rất ngon, đậm vị trà, trân châu mềm dẻo!",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 3), // 3 ngày trước
-  },
-  {
-    id: "r2",
-    productId: "34",
-    userName: "Trần Thị B",
-    userAvatar: "https://i.pravatar.cc/150?img=2",
-    rating: 4,
-    comment: "Ngon nhưng hơi ngọt, lần sau sẽ chọn ít đường hơn.",
-    createdAt: new Date(Date.now() - 1000 * 60 * 60 * 24 * 10), // 10 ngày trước
-  },
-];
 
 const SIZES = [
   { id: "S", name: "Nhỏ", price: 0 },
@@ -86,7 +57,7 @@ const COLORS = {
 export function ProductDetailPage() {
   const { id } = useLocalSearchParams();
   const productId = id as string;
-
+  const { user } = useAuth();
   const { addToCart } = useCart();
   const insets = useSafeAreaInsets();
   const router = useRouter();
@@ -96,6 +67,8 @@ export function ProductDetailPage() {
   const [fetchError, setFetchError] = useState<string | null>(null);
   const [relatedProducts, setRelatedProducts] = useState<ProductRow[]>([]);
   // 💡 States
+  const [reviews, setReviews] = useState<ReviewRow[]>([]);
+  const [isLoadingReviews, setIsLoadingReviews] = useState(true);
   const [size, setSize] = useState<"S" | "M" | "L">("M");
   const [ice, setIce] = useState(75); // Thay đổi 70 -> 75 để khớp với step 25
   const [sugar, setSugar] = useState(75); // Thay đổi 50 -> 75 để khớp với step 25
@@ -111,15 +84,21 @@ export function ProductDetailPage() {
       try {
         // API call: Chuyển string ID từ router sang number
         const data = await getProductById(Number(productId));
+        console.log("CHI TIET SP:", data);
         if (data) {
           setProduct(data);
+          const reviewRes = await getReviewsByProduct(Number(productId));
+          if (reviewRes.success) {
+            setReviews(reviewRes.data);
+          }
         } else {
           setFetchError("Sản phẩm không tồn tại.");
         }
       } catch (e: any) {
-        setFetchError(e.message || "Lỗi khi tải dữ liệu sản phẩm.");
+        setFetchError(e.message || "Lỗi khi tải dữ liệu.");
       } finally {
         setIsLoading(false);
+        setIsLoadingReviews(false);
       }
     };
     loadProduct();
@@ -159,11 +138,26 @@ export function ProductDetailPage() {
   const isDrink = product
     ? DRINK_CATEGORIES.includes(product.category ?? "")
     : false;
+  // ✅ LOGIC BADGE
+  const hasSale =
+    product?.salePrice && Number(product.salePrice) < Number(product.price);
+
+  const discountPercent = hasSale
+    ? Math.round(
+        ((Number(product.price) - Number(product.salePrice)) /
+          Number(product.price)) *
+          100
+      )
+    : 0;
+
   const calculatePrice = () => {
     if (!product) return 0;
 
     // ✅ FIX LỖI 1: Đảm bảo giá gốc là số
-    let basePrice = Number(product.price);
+    let basePrice =
+      hasSale && product.salePrice
+        ? Number(product.salePrice)
+        : Number(product.price);
 
     if (isDrink) {
       // ✅ FIX LỖI 2: Giá size cộng thêm
@@ -190,9 +184,6 @@ export function ProductDetailPage() {
     });
     handleGoBack();
   };
-
-  // 💡 Logic Lấy dữ liệu liên quan
-  const productReviews = reviews.filter((r) => r.productId === productId);
 
   // 💡 Logic Format Date
   const formatDate = (date: Date) => {
@@ -221,20 +212,21 @@ export function ProductDetailPage() {
         {/* Product Image */}
         <View style={styles.imageWrapper}>
           <Image source={{ uri: product.image }} style={styles.productImage} />
-          <LinearGradient
-            colors={["transparent", "rgba(30, 41, 59, 0.6)"]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 0, y: 1 }}
-            style={styles.imageGradientOverlay}
-          >
-            <View style={styles.ratingInfo}>
-              <Ionicons name="star" size={20} color={COLORS.amber400} />
-              {/* <Text style={styles.ratingText}>{product.rating}</Text>
-              <Text style={styles.soldCountText}>
-                ({product.soldCount} đã bán)
-              </Text> */}
-            </View>
-          </LinearGradient>
+
+          {/* ✅ BADGE TRÁI (GIẢM + HOT) */}
+          <View style={styles.badgeStack}>
+            {hasSale && (
+              <View style={styles.saleBadge}>
+                <Text style={styles.badgeText}>-{discountPercent}%</Text>
+              </View>
+            )}
+
+            {product.price > 30000 && (
+              <View style={styles.hotBadge}>
+                <Text style={styles.badgeText}>🔥 Hot</Text>
+              </View>
+            )}
+          </View>
         </View>
 
         <View style={styles.contentPadding}>
@@ -243,9 +235,26 @@ export function ProductDetailPage() {
             <Text style={styles.productTitle}>{product.name}</Text>
             <Text style={styles.productDescription}>{product.description}</Text>
             <View style={styles.infoFooter}>
-              <Text style={styles.productBasePrice}>
-                {Number(product.price).toLocaleString("vi-VN")}đ
-              </Text>
+              <View>
+                {hasSale ? (
+                  <>
+                    {/* Giá giảm */}
+                    <Text style={styles.salePrice}>
+                      {Number(product.salePrice).toLocaleString("vi-VN")}đ
+                    </Text>
+
+                    {/* Giá gốc gạch ngang */}
+                    <Text style={styles.originalPrice}>
+                      {Number(product.price).toLocaleString("vi-VN")}đ
+                    </Text>
+                  </>
+                ) : (
+                  <Text style={styles.productBasePrice}>
+                    {Number(product.price).toLocaleString("vi-VN")}đ
+                  </Text>
+                )}
+              </View>
+
               <Text style={styles.productCategory}>{product.category}</Text>
             </View>
           </View>
@@ -352,40 +361,43 @@ export function ProductDetailPage() {
           </View>
 
           {/* Reviews Section */}
-          {productReviews.length > 0 && (
-            <View style={styles.card}>
-              <View style={styles.reviewHeader}>
-                <Text style={styles.cardTitle}>
-                  Đánh giá ({productReviews.length})
-                </Text>
-                <View style={styles.ratingInfoSmall}>
-                  <Ionicons name="star" size={16} color={COLORS.amber400} />
-                  {/* <Text style={styles.ratingTextSmall}>{product.rating}</Text> */}
-                </View>
-              </View>
+          <View style={styles.card}>
+            <View style={styles.reviewHeader}>
+              <Text style={styles.cardTitle}>Đánh giá ({reviews.length})</Text>
+            </View>
 
+            {isLoadingReviews ? (
+              <ActivityIndicator color={COLORS.emerald600} />
+            ) : reviews.length > 0 ? (
               <View style={styles.reviewsList}>
-                {productReviews.slice(0, 3).map((review) => (
+                {reviews.map((review) => (
                   <View key={review.id} style={styles.reviewItem}>
+                    {/* ✅ SỬ DỤNG AVATAR CỦA NGƯỜI DÙNG ĐANG ĐĂNG NHẬP */}
                     <Image
-                      source={{ uri: review.userAvatar }}
+                      source={{
+                        uri:
+                          review.reviewerAvatar ||
+                          "https://placehold.co/100x100?text=User",
+                      }}
                       style={styles.userAvatar}
                     />
                     <View style={styles.reviewContent}>
                       <View style={styles.reviewMeta}>
-                        <Text style={styles.userName}>{review.userName}</Text>
-                        <Text style={styles.reviewDate}>
-                          {formatDate(review.createdAt)}
+                        <Text style={styles.userName}>
+                          <Text style={styles.userName}>
+                            {review.reviewerName}
+                          </Text>
                         </Text>
+                        {/* ❌ ĐÃ LOẠI BỎ created_on THEO YÊU CẦU */}
                       </View>
                       <View style={styles.reviewStars}>
-                        {[...Array(5)].map((_, i) => (
+                        {[1, 2, 3, 4, 5].map((s) => (
                           <Ionicons
-                            key={i}
+                            key={s}
                             name="star"
-                            size={14}
+                            size={12}
                             color={
-                              i < review.rating
+                              s <= review.rating
                                 ? COLORS.amber400
                                 : COLORS.slate200
                             }
@@ -397,14 +409,12 @@ export function ProductDetailPage() {
                   </View>
                 ))}
               </View>
-
-              <TouchableOpacity style={styles.viewAllReviewsButton}>
-                <Text style={styles.viewAllReviewsText}>
-                  Xem tất cả đánh giá
-                </Text>
-              </TouchableOpacity>
-            </View>
-          )}
+            ) : (
+              <Text style={styles.emptyText}>
+                Chưa có đánh giá nào cho món này.
+              </Text>
+            )}
+          </View>
 
           {/* Related Products */}
           {relatedProducts.length > 0 && (
@@ -437,13 +447,7 @@ export function ProductDetailPage() {
                       <Text style={styles.relatedProductName} numberOfLines={2}>
                         {relatedProduct.name}
                       </Text>
-                      <View style={styles.ratingInfoSmall}>
-                        <Ionicons
-                          name="star"
-                          size={12}
-                          color={COLORS.amber400}
-                        />
-                      </View>
+
                       <Text style={styles.relatedPriceText}>
                         {Number(relatedProduct.price).toLocaleString("vi-VN")}đ
                       </Text>
@@ -781,4 +785,48 @@ const styles = StyleSheet.create({
   },
   addToCartText: { color: COLORS.white, fontSize: 16, fontWeight: "bold" },
   addToCartPrice: { color: COLORS.white, fontSize: 16, fontWeight: "bold" },
+  reviewImg: { width: 80, height: 80, borderRadius: 8, marginTop: 8 },
+  emptyText: {
+    textAlign: "center",
+    color: COLORS.slate400,
+    paddingVertical: 20,
+  },
+  badgeStack: {
+    position: "absolute",
+    top: 16,
+    left: 16,
+    gap: 6,
+    zIndex: 50,
+  },
+
+  saleBadge: {
+    backgroundColor: COLORS.red500,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+
+  hotBadge: {
+    backgroundColor: COLORS.amber400,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+
+  badgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
+  salePrice: {
+    color: COLORS.red500,
+    fontSize: 20,
+    fontWeight: "bold",
+  },
+
+  originalPrice: {
+    color: COLORS.slate400,
+    fontSize: 14,
+    textDecorationLine: "line-through",
+  },
 });

@@ -25,7 +25,7 @@ export interface ProductRow {
   price: number;
   image: string; // Giả định cột chứa URL ảnh sản phẩm
   category?: string;
-  // Thêm các trường khác nếu cần
+  salePrice?: number | null;
 }
 export interface CategoryRow {
   id: number;
@@ -97,6 +97,15 @@ export interface VoucherRow {
   order_voucher: [{ id: number }] | []; // Link Row
   user: [{ id: number }] | []; // Link Row (Người sở hữu)
 }
+export interface ReviewRow {
+  id: number;
+  rating: number;
+  comment: string;
+  product: [{ id: number }];
+  user: [{ id: number }];
+  reviewerName: string;
+  reviewerAvatar: string;
+}
 interface BaserowListResponse<T> {
   count: number;
   next: string | null;
@@ -104,6 +113,7 @@ interface BaserowListResponse<T> {
   results: T[];
 }
 // -------------------------------------------------------------
+const API_TOKEN = "78WCfXpbSExuHx3YTJ2CfO2rnMSSCosd";
 const USERS_TABLE_ID = 760467;
 const PRODUCTS_TABLE_ID = 760465;
 const CATEGORIES_TABLE_ID = 760466;
@@ -112,6 +122,7 @@ const ORDERS_TABLE_ID = 760468;
 const ORDER_DETAILS_TABLE_ID = 760469;
 const VOUCHERS_TABLE_ID = 769574;
 const USER_FAVORITES_FIELD = "field_6574405";
+const REVIEWS_TABLE_ID = 780986;
 
 // -------------------------------------------------------------
 const normalizeCategoryName = (name: string): string => {
@@ -296,6 +307,17 @@ export const updateUser = async (
     return { success: false, message: detailMessage };
   }
 };
+export const getUserById = async (userId: number): Promise<UserRow | null> => {
+  try {
+    const response: UserRow = await axiosClient.get(
+      `${USERS_TABLE_ID}/${userId}/?user_field_names=true`
+    );
+    return response;
+  } catch (error) {
+    console.error(`❌ [GET USER BY ID ERROR] ID: ${userId}`, error);
+    return null;
+  }
+};
 export const uploadFileToBaserow = async (fileUri: string) => {
   try {
     const fileExt = fileUri.split(".").pop();
@@ -317,7 +339,7 @@ export const uploadFileToBaserow = async (fileUri: string) => {
     } as any);
 
     const API_URL = "https://api.baserow.io/api/user-files/upload-file/";
-    const API_TOKEN = "78WCfXpbSExuHx3YTJ2CfO2rnMSSCosd"; // token của bạn
+    // token của bạn
 
     const uploadResponse = await fetch(API_URL, {
       method: "POST",
@@ -379,6 +401,7 @@ export const getProducts = async (): Promise<{
           name: product.name,
           description: product.description || "Chưa có mô tả",
           price: product.price || 0,
+          salePrice: product.salePrice || null,
           image:
             product.image ||
             "https://placehold.co/150x150/f0f9ff/64748b?text=No+Image",
@@ -424,6 +447,7 @@ const normalizeSingleProduct = (product: any): ProductRow => {
     name: product.name,
     description: product.description || "Chưa có mô tả",
     price: product.price || 0,
+    salePrice: product.salePrice || null,
     image:
       product.image ||
       "https://placehold.co/150x150/f0f9ff/64748b?text=No+Image",
@@ -652,6 +676,7 @@ export const deleteAddress = async (
 // -------------------------------------------------------------
 // Bảng đơn hàng và chi tiết đơn hàng
 // -------------------------------------------------------------
+
 export const createOrder = async (
   userId: number,
   orderData: {
@@ -660,7 +685,6 @@ export const createOrder = async (
     deliveryAddressId: number;
     paymentMethod: string;
     note?: string;
-    estimatedTime?: string;
     voucherId?: number;
   }
 ): Promise<{ success: boolean; data?: OrderRow; message?: string }> => {
@@ -668,61 +692,67 @@ export const createOrder = async (
     name: `ORD-${new Date()
       .toISOString()
       .replace(/[-:T.]/g, "")
-      .slice(0, 14)}-${Math.floor(Math.random() * 1000)}-${userId}`,
+      .slice(0, 14)}-${userId}`,
     notes: orderData.note || null,
-    status: "pending", // Default status
+    status: "pending",
     amount: orderData.total,
     method: orderData.paymentMethod,
     address: [orderData.deliveryAddressId],
-    estimated_time: orderData.estimatedTime || null, // Vẫn giữ estimated_time nếu bạn muốn
     voucher: orderData.voucherId ? [orderData.voucherId] : [],
     user: [userId],
   };
 
-  const orderEndpoint = `${ORDERS_TABLE_ID}/?user_field_names=true`;
-
   try {
-    // 2. TẠO ORDER HEADER
+    // Bước 1: Tạo Order Header
     const orderResponse: OrderRow = await axiosClient.post(
-      orderEndpoint,
+      `${ORDERS_TABLE_ID}/?user_field_names=true`,
       cleanPayload(orderHeaderPayload)
     );
     const newOrderId = orderResponse.id;
+    const items = orderData.items;
+    const chunkSize = 5; // Gửi 5 món cùng lúc mỗi đợt
 
-    // 3. TẠO ORDER DETAIL ITEMS
-    const detailPromises = orderData.items.map((item) => {
-      const productIdNumber = Number(item.productId);
+    for (let i = 0; i < items.length; i += chunkSize) {
+      const chunk = items.slice(i, i + chunkSize);
 
-      const detailPayload = {
-        quantity: item.quantity,
-        price: Number(item.price),
-        total: item.quantity * Number(item.price),
-        size: item.size,
-        ice: item.ice,
-        sugar: item.sugar,
-        is_drink: item.isDrink,
-        Product: [productIdNumber], // Liên kết đến sản phẩm
-        orders: [newOrderId], // Liên kết đến Order Header vừa tạo
-      };
+      // Tạo một nhóm các Promise để chạy song song trong nội bộ nhóm
+      const chunkPromises = chunk.map((item) => {
+        const detailPayload = {
+          quantity: item.quantity,
+          price: Number(item.price),
+          total: item.quantity * Number(item.price),
+          size: item.size,
+          ice: item.ice,
+          sugar: item.sugar,
+          is_drink: item.isDrink,
+          Product: [Number(item.productId)],
+          orders: [newOrderId],
+        };
 
-      const detailEndpoint = `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true`;
-      return axiosClient.post(detailEndpoint, cleanPayload(detailPayload));
-    });
+        return axiosClient.post(
+          `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true`,
+          cleanPayload(detailPayload)
+        );
+      });
 
-    await Promise.all(detailPromises);
+      // Chờ cả nhóm 5 món tạo xong
+      await Promise.all(chunkPromises);
 
-    // 4. Trả về Order Header đã tạo
+      // Nghỉ một chút (khoảng 150ms) giữa các đợt để "thở"
+      if (i + chunkSize < items.length) {
+        await new Promise((resolve) => setTimeout(resolve, 150));
+      }
+    }
+
     return { success: true, data: orderResponse };
   } catch (error: any) {
     console.error("❌ [CREATE ORDER ERROR]", error.response?.data || error);
-
     return {
       success: false,
-      message: "Không thể tạo đơn hàng (Lỗi Header hoặc Details).",
+      message: "Không thể tạo đơn hàng do quá tải hoặc lỗi mạng.",
     };
   }
 };
-
 export const getOrders = async (
   userId: number
 ): Promise<{ success: boolean; data?: OrderRow[]; message?: string }> => {
@@ -752,100 +782,180 @@ export const getOrders = async (
   }
 };
 
+export const fetchOrdersWithDetails = async (
+  userId: number
+): Promise<any[]> => {
+  try {
+    // 1. Lấy danh sách Đơn hàng của người dùng
+    const orderResult = await getOrders(userId);
+    if (
+      !orderResult.success ||
+      !orderResult.data ||
+      orderResult.data.length === 0
+    ) {
+      return [];
+    }
+
+    const orderRows = orderResult.data;
+
+    // 2. Lấy cache sản phẩm để có thông tin tên, ảnh
+    const allProductsRes = await getProducts();
+    const productMap = new Map<number, any>();
+    allProductsRes.data?.forEach((p) => productMap.set(p.id, p));
+
+    // 3. Lấy tất cả chi tiết của các đơn hàng này trong 1 request
+    const orderIds = orderRows.map((row) => row.id).join(",");
+    const detailsFilters = JSON.stringify({
+      filter_type: "AND",
+      filters: [{ type: "link_row_has", field: "orders", value: orderIds }],
+    });
+
+    // Gọi trực tiếp axiosClient vì đang ở trong file baserowApi
+    const allDetailsRes = await axiosClient.get(
+      `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
+        detailsFilters
+      )}`
+    );
+    const allDetails = (allDetailsRes as any).results || [];
+
+    // 4. Phân loại chi tiết về đúng đơn hàng tương ứng
+    const mappedOrders = orderRows.map((row) => {
+      // Lọc các món thuộc về đơn hàng 'row.id' này
+      const detailsForThisOrder = allDetails.filter(
+        (d: any) => d.orders && d.orders.some((o: any) => o.id === row.id)
+      );
+
+      const mappedItems = detailsForThisOrder.map((detail: any) => {
+        const productId = detail.Product?.[0]?.id;
+        const product = productMap.get(productId);
+
+        return {
+          id: String(detail.id),
+          productId: String(productId || 0),
+          name: product?.name || "Sản phẩm cũ",
+          image: product?.image || "https://placehold.co/64",
+          price: detail.price ?? 0,
+          quantity: detail.quantity ?? 1, // Lấy đúng số lượng từ OrderDetail
+          size: detail.size ?? "M",
+          ice: detail.ice ?? 0,
+          sugar: detail.sugar ?? 0,
+          isDrink: detail.is_drink ?? false,
+        };
+      });
+
+      return {
+        id: row.id.toString(),
+        name: row.name,
+        items: mappedItems, // Chỉ chứa món của đơn hàng này
+        total: row.amount,
+        status: (row.status as any)?.value || row.status,
+        deliveryAddress: row.address?.[0]?.address || "Địa chỉ không rõ",
+        paymentMethod: row.method,
+        note: row.notes || "",
+        voucher: row.voucher?.[0]?.name,
+      };
+    });
+
+    return mappedOrders;
+  } catch (e) {
+    console.error("Lỗi fetchOrdersWithDetails:", e);
+    return [];
+  }
+};
 export const getOrderById = async (
   orderId: number
 ): Promise<{ success: boolean; data?: any; message?: string }> => {
   try {
     // 1. Lấy Order header
-    const orderEndpoint = `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`;
-    const orderRes = await axiosClient.get(orderEndpoint);
+    const orderRes = await axiosClient.get(
+      `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`
+    );
 
-    if (!orderRes || !orderRes.id) {
+    // Lưu ý: axiosClient của bạn có thể trả về data trực tiếp hoặc qua .data
+    const orderData = orderRes.id ? orderRes : orderRes.data;
+
+    if (!orderData || !orderData.id) {
       return { success: false, message: "Không tìm thấy đơn hàng." };
     }
 
-    // 2. Query OrderDetail theo orderId
+    // 2. Query OrderDetail
     const filters = JSON.stringify({
       filter_type: "AND",
       filters: [
-        {
-          type: "link_row_has",
-          field: "orders",
-          value: orderId.toString(),
-        },
+        { type: "link_row_has", field: "orders", value: orderId.toString() },
       ],
     });
 
     const detailEndpoint = `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
       filters
     )}`;
-
     const detailsRes = await axiosClient.get<
       BaserowListResponse<OrderDetailRow>
     >(detailEndpoint);
 
-    const details = detailsRes.results || [];
+    // Lưu ý: Kiểm tra results hoặc data tùy vào axiosClient
+    const details =
+      (detailsRes as any).results || (detailsRes as any).data?.results || [];
 
-    // 3. Lấy các product liên quan
-    const productIds = details.map((d) => d.Product?.[0]?.id).filter(Boolean);
+    // 3. Tải cache sản phẩm
+    const allProductsRes = await getProducts();
+    let productMap = new Map<number, any>();
 
-    const uniqueProductIds = [...new Set(productIds)];
-    let productMap: Record<number, ProductRow> = {};
+    // Lưu ý quan trọng: Phải lấy đúng mảng sản phẩm từ .data
+    const productsArray = allProductsRes.data || [];
+    productsArray.forEach((p: any) => productMap.set(p.id, p));
 
-    if (uniqueProductIds.length > 0) {
-      const productResults = await Promise.all(
-        uniqueProductIds.map((pid) => getProductById(pid))
-      );
+    // 4. MAP thông tin
+    const mergedDetails = details.map((item: any) => {
+      const productId = item.Product?.[0]?.id;
+      const productInfo = productMap.get(productId);
 
-      productResults.forEach((p) => {
-        if (p?.id) productMap[p.id] = p;
-      });
-    }
+      // Xử lý lấy URL ảnh từ Baserow (thường là mảng các object)
+      let imageUrl = "";
+      if (productInfo?.image) {
+        if (Array.isArray(productInfo.image) && productInfo.image.length > 0) {
+          imageUrl = productInfo.image[0].url; // Lấy URL từ object đầu tiên trong mảng
+        } else if (typeof productInfo.image === "string") {
+          imageUrl = productInfo.image;
+        }
+      }
 
-    // 4. Gộp detail + product
-    const mergedDetails = details.map((item) => {
-      const pid = item.Product?.[0]?.id;
       return {
         id: item.id,
-        quantity: item.quantity,
-        price: item.price,
-        total: item.total,
-        size: item.size,
-        ice: item.ice,
-        sugar: item.sugar,
-        is_drink: item.is_drink,
-        product: productMap[pid] || null,
+        productId: productId,
+        name: productInfo?.name || "Sản phẩm không xác định",
+        image: imageUrl || "https://placehold.co/200", // Ảnh mặc định nếu lỗi
+        quantity: item.quantity || 1,
+        price: item.price || 0,
+        total: item.total || 0,
+        size: item.size || "M",
+        ice: item.ice || 0,
+        sugar: item.sugar || 0,
+        is_drink: item.is_drink || false,
       };
     });
 
-    // 5. Chuẩn hoá dữ liệu trả về
-    const normalizedOrder = {
-      id: orderRes.id,
-      name: orderRes.name,
-      notes: orderRes.notes,
-      status: orderRes.status,
-      amount: orderRes.amount,
-      method: orderRes.method,
-      user: orderRes.user?.[0]?.id || null,
-      address: orderRes.address?.[0] || null,
-      voucher: orderRes.voucher?.[0] || null,
-      orderDetail: mergedDetails,
-    };
+    // 5. Tính tổng
 
     return {
       success: true,
-      data: normalizedOrder,
+      data: {
+        id: orderData.id,
+        name: orderData.name,
+        status: orderData.status?.value || orderData.status,
+        amount: orderData.amount,
+
+        method: orderData.method,
+        address:
+          orderData.address?.[0]?.address || orderData.address?.[0] || "N/A",
+        orderDetail: mergedDetails,
+      },
     };
   } catch (error: any) {
-    console.error("❌ [GET ORDER BY ID ERROR]", error.response?.data || error);
-
-    return {
-      success: false,
-      message: "Không thể tải chi tiết đơn hàng.",
-    };
+    console.error("❌ [GET ORDER BY ID ERROR]", error);
+    return { success: false, message: "Lỗi tải chi tiết đơn hàng." };
   }
 };
-
 export const getOrderDetails = async (
   orderId: number
 ): Promise<{ success: boolean; data?: OrderDetailRow[]; message?: string }> => {
@@ -994,5 +1104,85 @@ export const updateFavoriteProductIds = async (
       success: false,
       message: "Không thể cập nhật danh sách yêu thích.",
     };
+  }
+};
+//-------------------------------------------------------------------------------
+//Bảng đánh giá
+//-------------------------------------------------------------------------------
+export const createReview = async (payload: {
+  rating: number;
+  comment: string;
+  productId: number;
+  userId: number;
+}) => {
+  const endpoint = `${REVIEWS_TABLE_ID}/?user_field_names=true`;
+
+  const body = {
+    rating: payload.rating,
+    comment: payload.comment,
+    product: [payload.productId], // Liên kết sản phẩm
+    user: [payload.userId], // Liên kết người dùng
+  };
+
+  try {
+    const response = await axiosClient.post(endpoint, body);
+    return { success: true, data: response };
+  } catch (error: any) {
+    console.error("❌ [CREATE REVIEW ERROR]", error.response?.data || error);
+    return { success: false, message: "Không thể gửi đánh giá." };
+  }
+};
+export const getReviewsByProduct = async (
+  productId: number
+): Promise<{ success: boolean; data: ReviewRow[] }> => {
+  const filters = JSON.stringify({
+    filter_type: "AND",
+    filters: [
+      { type: "link_row_has", field: "product", value: productId.toString() },
+    ],
+  });
+
+  try {
+    const response: BaserowListResponse<any> = await axiosClient.get(
+      `${REVIEWS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
+        filters
+      )}`
+    );
+
+    const reviews = response.results || [];
+
+    // ✅ TỐI ƯU HÓA: Tìm tất cả User ID duy nhất trong danh sách đánh giá
+    const uniqueUserIds = Array.from(
+      new Set(
+        reviews.map((r) => r.user?.[0]?.id).filter((id) => id !== undefined)
+      )
+    ) as number[];
+
+    // Tải thông tin của các User này
+    const usersData = await Promise.all(
+      uniqueUserIds.map((id) => getUserById(id))
+    );
+
+    // Tạo một bản đồ (Map) để tra cứu nhanh: userId -> avatarUrl
+    const avatarMap = new Map<number, string>();
+    usersData.forEach((u) => {
+      if (u) avatarMap.set(u.id, u.avatar || "");
+    });
+
+    // ✅ KẾT HỢP DỮ LIỆU
+    const processedData: ReviewRow[] = reviews.map((item) => {
+      const userId = item.user?.[0]?.id;
+      return {
+        ...item,
+        reviewerName: item.user?.[0]?.value || "Người dùng ẩn danh",
+        reviewerAvatar:
+          avatarMap.get(userId) || "https://placehold.co/100x100?text=User",
+      };
+    });
+
+    return { success: true, data: processedData };
+  } catch (error) {
+    console.error("Lỗi lấy đánh giá:", error);
+    return { success: false, data: [] };
   }
 };

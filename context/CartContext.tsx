@@ -1,3 +1,5 @@
+import { useAuth } from "@/context/AuthContext";
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import React, {
   createContext,
   ReactNode,
@@ -59,6 +61,8 @@ const CartContext = createContext<CartContextType | undefined>(undefined);
 export function CartProvider({ children }: { children: ReactNode }) {
   const [items, setItems] = useState<CartItem[]>([]);
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
+  const { user } = useAuth();
+  const userId = user?.id; // hoặc user?.email
 
   const showSuccessToast = (message: string) => {
     Toast.show({
@@ -74,6 +78,47 @@ export function CartProvider({ children }: { children: ReactNode }) {
   // ----------------------------------------------------------------------
   // Cart Actions
   // ----------------------------------------------------------------------
+  useEffect(() => {
+    if (!userId) return;
+
+    const loadCart = async () => {
+      try {
+        const data = await AsyncStorage.getItem(`cart_${userId}`);
+        if (data) {
+          const parsed = JSON.parse(data);
+          setItems(parsed.items || []);
+          setSelectedVoucher(parsed.selectedVoucher || null);
+          console.log("CART: Loaded cart for user", userId);
+        } else {
+          setItems([]);
+          setSelectedVoucher(null);
+        }
+      } catch (e) {
+        console.log("CART: Load error", e);
+      }
+    };
+
+    loadCart();
+  }, [userId]);
+  useEffect(() => {
+    if (!userId) return;
+
+    const saveCart = async () => {
+      try {
+        await AsyncStorage.setItem(
+          `cart_${userId}`,
+          JSON.stringify({
+            items,
+            selectedVoucher,
+          })
+        );
+      } catch (e) {
+        console.log("CART: Save error", e);
+      }
+    };
+
+    saveCart();
+  }, [items, selectedVoucher, userId]);
 
   const addToCart = (item: Omit<CartItem, "id">) => {
     const isDrinkItem = item.isDrink;

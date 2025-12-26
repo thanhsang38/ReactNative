@@ -29,7 +29,7 @@ import {
 } from "./services/baserowApi";
 
 // --- CẤU HÌNH VÀ HẰNG SỐ ---
-const GEMINI_API_KEY = "AIzaSyBYJWtVh2bvgEjWZF7K6hLhJoYFjiIwRRE";
+const GEMINI_API_KEY = "AIzaSyAy88GdWEAYlvz425XOBFdmIX3RGjdReoQ";
 const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 const MAX_RETRIES = 3;

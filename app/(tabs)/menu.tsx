@@ -161,7 +161,8 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     try {
       const favorites = user?.id ? await getFavoriteProductIds(user.id) : [];
       setFavoriteProductIds(favorites);
-      const productResult = await getProducts(); // KHÔNG DÙNG PAGE/LIMIT Ở ĐÂY
+      const productResult = await getProducts(); // KHÔNG DÙNG PAGE/LIMIT Ở
+      console.log("sản phẩm menu:", productResult);
       if (productResult.success && productResult.data) {
         setAllProducts(productResult.data); // Lưu toàn bộ data
       } else {
@@ -348,12 +349,15 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(
       product.category ?? ""
     );
-
+    const finalPrice =
+      product.salePrice && Number(product.salePrice) > 0
+        ? Number(product.salePrice)
+        : Number(product.price);
     const newItem: Omit<CartItem, "id"> = {
       productId: product.id.toString(),
       name: product.name,
       image: product.image,
-      price: product.price,
+      price: finalPrice,
       quantity: 1,
       size: "M",
       ice: isDrink ? 75 : 0,
@@ -464,6 +468,19 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
               const isFavorite = favoriteProductIds.includes(product.id);
 
               const heartIconName = isFavorite ? "heart" : "heart-outline";
+              const hasSale =
+                product.salePrice && Number(product.salePrice) > 0;
+
+              const displayPrice = hasSale
+                ? Number(product.salePrice)
+                : Number(product.price);
+
+              const discountPercent = hasSale
+                ? Math.round(
+                    (1 - Number(product.salePrice) / Number(product.price)) *
+                      100
+                  )
+                : 0;
 
               return (
                 <TouchableOpacity
@@ -491,11 +508,21 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                           color={isFavorite ? COLORS.red500 : COLORS.slate400}
                         />
                       </TouchableOpacity>
-                      {product.price > 30000 && (
-                        <View style={styles.hotTag}>
-                          <Text style={styles.hotTagText}>🔥 Hot</Text>
-                        </View>
-                      )}
+                      <View style={styles.badgeStack}>
+                        {product.salePrice && (
+                          <View style={styles.saleBadge}>
+                            <Text style={styles.badgeText}>
+                              -{discountPercent}%
+                            </Text>
+                          </View>
+                        )}
+
+                        {product.price > 30000 && (
+                          <View style={styles.hotBadge}>
+                            <Text style={styles.badgeText}>🔥 Hot</Text>
+                          </View>
+                        )}
+                      </View>
                     </View>
 
                     <View style={styles.productDetails}>
@@ -505,19 +532,21 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
                       <Text style={styles.productDescription} numberOfLines={1}>
                         {product.description}
                       </Text>
-                      {/* <View style={styles.ratingRow}>
-                        <Ionicons
-                          name="star"
-                          size={14}
-                          color={COLORS.amber400}
-                        />
-                      </View> */}
+
                       <View style={styles.productFooter}>
-                        <Text style={styles.productPrice}>
-                          {Number(product.price).toLocaleString("vi-VN")}đ
-                        </Text>
+                        <View>
+                          <Text style={styles.productPrice}>
+                            {displayPrice.toLocaleString("vi-VN")}đ
+                          </Text>
+
+                          {hasSale && (
+                            <Text style={styles.originalPriceSmall}>
+                              {Number(product.price).toLocaleString("vi-VN")}đ
+                            </Text>
+                          )}
+                        </View>
                         <TouchableOpacity
-                          onPress={() => onAddToCart(product)} // ✅ GỌI HÀM ADD TO CART THẬT
+                          onPress={() => onAddToCart(product)}
                           style={styles.addButton}
                         >
                           <Text style={styles.addButtonText}>+</Text>
@@ -790,4 +819,52 @@ const styles = StyleSheet.create({
   noResultsContainer: { alignItems: "center", paddingVertical: 48 },
   noResultsEmoji: { fontSize: 48, marginBottom: 16 },
   noResultsText: { color: COLORS.slate600, fontSize: 16 },
+  originalPriceSmall: {
+    fontSize: 10,
+    color: COLORS.slate400,
+    textDecorationLine: "line-through",
+  },
+  discountBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: COLORS.red500,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    borderRadius: 6,
+    zIndex: 10,
+  },
+
+  discountText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  badgeStack: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    gap: 4, // ⭐ QUAN TRỌNG: tạo khoảng cách giữa badge
+    zIndex: 10,
+  },
+
+  saleBadge: {
+    backgroundColor: "#ef4444",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+
+  hotBadge: {
+    backgroundColor: "#fbbf24",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+
+  badgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
+  },
 });

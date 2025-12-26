@@ -190,29 +190,25 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
 
     let itemsAddedCount = 0;
 
-    // ✅ LẶP QUA TẤT CẢ CÁC MỤC TRONG ĐƠN HÀNG VÀ THÊM VÀO GIỎ
     order.orderDetail.forEach((item: any) => {
-      if (item.product && item.quantity > 0) {
-        const productData = item.product;
+      const quantity = parseInt(item.quantity) || 1;
+      if (!item.productId || quantity <= 0) return;
 
-        // Chuẩn bị CartItem Payload (Sử dụng các giá trị từ order detail)
-        const itemToAdd: Omit<CartItem, "id"> = {
-          productId: productData.id.toString(),
-          name: productData.name || "Sản phẩm",
-          image: productData.image || "https://placehold.co/64x64",
-          price: parseFloat(item.price) || 0,
-          quantity: parseInt(item.quantity) || 1,
+      const itemToAdd: Omit<CartItem, "id"> = {
+        productId: item.productId.toString(),
+        name: item.name || "Sản phẩm",
+        image: item.image || "https://placehold.co/64x64",
+        price: parseFloat(item.price) || 0,
+        quantity,
 
-          // Lấy các options từ order detail
-          size: (item.size || "M") as "S" | "M" | "L",
-          ice: item.ice || 0,
-          sugar: item.sugar || 0,
-          isDrink: item.is_drink || false,
-        };
+        size: (item.size || "M") as "S" | "M" | "L",
+        ice: Number(item.ice) || 0,
+        sugar: Number(item.sugar) || 0,
+        isDrink: !!item.is_drink,
+      };
 
-        addToCart(itemToAdd);
-        itemsAddedCount += itemToAdd.quantity;
-      }
+      addToCart(itemToAdd);
+      itemsAddedCount += quantity;
     });
 
     if (itemsAddedCount > 0) {
@@ -222,7 +218,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
         text2: `Đã thêm ${itemsAddedCount} sản phẩm từ đơn hàng này.`,
         visibilityTime: 2000,
       });
-      // ✅ CHUYỂN HƯỚNG SANG TRANG GIỎ HÀNG
+
       router.push("/cart");
     } else {
       Toast.show({
@@ -233,6 +229,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
       });
     }
   };
+
   // Xử lý trạng thái từ API (có thể là object hoặc string)
   const statusValue =
     typeof order.status === "object" ? order.status.value : order.status;
@@ -502,13 +499,13 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                 return (
                   <View key={item.id || index} style={styles.itemDetailRow}>
                     <Image
-                      source={{ uri: item.product?.image }}
-                      alt={item.product?.image}
+                      source={{ uri: item?.image }}
+                      alt={item?.image}
                       style={styles.itemDetailImage}
                     />
                     <View style={styles.itemDetailInfo}>
                       <Text style={styles.itemDetailName}>
-                        {item.product?.name || `Sản phẩm ${index + 1}`}
+                        {item?.name || `Sản phẩm ${index + 1}`}
                       </Text>
                       {item.is_drink && (
                         <View style={styles.itemDetailOptions}>

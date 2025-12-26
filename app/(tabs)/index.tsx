@@ -173,11 +173,15 @@ export function HomeRoute() {
     const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(
       product.category ?? ""
     );
+    const finalPrice =
+      product.salePrice && Number(product.salePrice) > 0
+        ? Number(product.salePrice)
+        : Number(product.price);
     const newItem: Omit<CartItem, "id"> = {
       productId: product.id.toString(),
       name: product.name,
       image: product.image, // ✅ Dùng image_url từ ProductRow
-      price: product.price,
+      price: finalPrice,
       quantity: 1,
       size: "M",
       ice: isDrink ? 75 : 0,
@@ -186,6 +190,7 @@ export function HomeRoute() {
     };
     addToCart(newItem);
   };
+
   if (isLoading && allProducts.length === 0) {
     return (
       <View style={[styles.fullContainer, styles.loadingContainer]}>
@@ -304,6 +309,18 @@ export function HomeRoute() {
             columnWrapperStyle={styles.productRow}
             renderItem={({ item: product }) => {
               const isFavorite = favoriteProductIds.includes(product.id);
+              const hasSale =
+                product.salePrice && Number(product.salePrice) > 0;
+
+              const displayPrice = hasSale
+                ? Number(product.salePrice)
+                : Number(product.price);
+              const discountPercent = hasSale
+                ? Math.round(
+                    (1 - Number(product.salePrice) / Number(product.price)) *
+                      100
+                  )
+                : 0;
 
               return (
                 <TouchableOpacity
@@ -318,6 +335,22 @@ export function HomeRoute() {
                   activeOpacity={0.8}
                 >
                   {/* Image & Favorite Button */}
+                  <View style={styles.badgeStack}>
+                    {product.salePrice && (
+                      <View style={styles.saleBadge}>
+                        <Text style={styles.badgeText}>
+                          -{discountPercent}%
+                        </Text>
+                      </View>
+                    )}
+
+                    {product.price > 30000 && (
+                      <View style={styles.hotBadge}>
+                        <Text style={styles.badgeText}>🔥 Hot</Text>
+                      </View>
+                    )}
+                  </View>
+
                   <View style={styles.productImageWrapper}>
                     <Image
                       source={{ uri: product.image }}
@@ -345,9 +378,21 @@ export function HomeRoute() {
                     </Text>
 
                     <View style={styles.priceContainer}>
-                      <Text style={styles.productPrice}>
-                        {Number(product.price).toLocaleString("vi-VN")}đ
-                      </Text>
+                      <View>
+                        {/* Giá chính */}
+                        <Text style={styles.productPrice}>
+                          {displayPrice.toLocaleString("vi-VN")}đ
+                        </Text>
+
+                        {/* Giá gốc gạch ngang */}
+                        {hasSale && (
+                          <Text style={styles.originalPriceSmall}>
+                            {Number(product.price).toLocaleString("vi-VN")}đ
+                          </Text>
+                        )}
+                      </View>
+
+                      {/* Nút thêm */}
                       <TouchableOpacity
                         onPress={() => handleAddToCart(product)}
                         style={styles.addButton}
@@ -629,5 +674,52 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: "#333",
+  },
+  originalPriceSmall: {
+    fontSize: 10,
+    color: COLORS.slate400,
+    textDecorationLine: "line-through",
+  },
+  discountBadge: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    backgroundColor: COLORS.red500,
+    paddingHorizontal: 6,
+    paddingVertical: 6,
+    borderRadius: 6,
+    zIndex: 10, // ✅
+  },
+  discountText: {
+    color: "white",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+  badgeStack: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    gap: 4, // ⭐ QUAN TRỌNG: tạo khoảng cách giữa badge
+    zIndex: 10,
+  },
+
+  saleBadge: {
+    backgroundColor: "#ef4444",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+
+  hotBadge: {
+    backgroundColor: "#fbbf24",
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+
+  badgeText: {
+    color: "#fff",
+    fontSize: 12,
+    fontWeight: "bold",
   },
 });

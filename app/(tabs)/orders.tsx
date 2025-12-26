@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router";
-import React, { useCallback, useState } from "react";
+import React, { useCallback, useEffect, useState } from "react";
 import {
   ActivityIndicator,
   FlatList,
@@ -14,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 // 💡 Cần import Header và useOrders từ đúng đường dẫn
+import Toast from "react-native-toast-message";
 import { Header } from "../../components/Header";
 import { useAuth } from "../../context/AuthContext";
 import {
@@ -114,14 +115,13 @@ const STATUS_CONFIG: {
 };
 
 export function OrdersPage() {
-  const { cancelOrder } = useOrders(); // ✅ CHỈ LẤY CÁC HÀM THAO TÁC
-  const { user } = useAuth(); // ✅ LẤY USER IDconst [filter, setFilter] = useState<"all" | "active" | "completed">("all");
+  const { user } = useAuth();
   const insets = useSafeAreaInsets();
   const router = useRouter();
   const headerHeight = 60 + insets.top;
   const [orders, setOrders] = useState<Order[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-
+  const { hasRealtimeUpdate, reloadOrders, realtimePayload } = useOrders();
   const [filter, setFilter] = useState<"all" | "active" | "completed">("all");
   const FILTER_TABS = [
     { id: "all", label: "Tất cả" },
@@ -130,6 +130,14 @@ export function OrdersPage() {
       label: STATUS_CONFIG[key as OrderStatus].label,
     })),
   ];
+  const STATUS_LABEL: Record<string, string> = {
+    pending: "Chờ xác nhận",
+    confirmed: "Đã xác nhận",
+    preparing: "Đang chuẩn bị",
+    delivering: "Đang giao",
+    completed: "Hoàn thành",
+    cancelled: "Đã hủy",
+  };
 
   const loadOrders = async () => {
     if (!user || !user.id) return;
@@ -176,6 +184,29 @@ export function OrdersPage() {
   const handleNavigateToMenu = () => {
     router.push("/(tabs)/menu");
   };
+  useEffect(() => {
+    if (!hasRealtimeUpdate) return;
+
+    console.log("🔔 Realtime update detected → reload UI");
+
+    if (hasRealtimeUpdate && realtimePayload) {
+      Toast.show({
+        type: "info",
+        text1: `📦 Đơn #${realtimePayload.orderName}`,
+        text2: `Trạng thái: ${
+          STATUS_LABEL[realtimePayload.status] || realtimePayload.status
+        }`,
+        position: "top",
+      });
+    }
+    const handleRealtime = async () => {
+      await loadOrders(); // reload UI
+      await reloadOrders(); // 🔥 reset realtime flag (QUAN TRỌNG)
+    };
+
+    handleRealtime();
+  }, [hasRealtimeUpdate, realtimePayload]);
+
   if (isLoading) {
     return (
       <View style={styles.loadingContainer}>
