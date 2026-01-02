@@ -5,6 +5,7 @@ import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
+  Alert,
   Image,
   ScrollView,
   StyleSheet,
@@ -14,6 +15,7 @@ import {
   View,
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
+import Toast from "react-native-toast-message";
 import { Header } from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -23,6 +25,7 @@ import {
   getReviewsByProduct,
   ProductRow,
   ReviewRow,
+  updateReviewApi,
 } from "./services/baserowApi";
 // --- Dữ liệu Mock và Types (Sử dụng dữ liệu từ file gốc của bạn) ---
 
@@ -50,8 +53,37 @@ const COLORS = {
   teal600: "#0d9488",
   amber400: "#fbbf24",
   red500: "#ef4444",
+  slate300: "#cbd5e1",
 };
+const RatingStars = ({
+  rating,
+  onRate,
+  size = "md",
+}: {
+  rating: number;
+  onRate: (rating: number) => void;
+  size?: "sm" | "md" | "lg";
+}) => {
+  const sizeValue = size === "lg" ? 40 : size === "md" ? 32 : 24;
 
+  return (
+    <View style={{ flexDirection: "row", gap: 4, marginBottom: 8 }}>
+      {[1, 2, 3, 4, 5].map((star) => (
+        <TouchableOpacity
+          key={star}
+          onPress={() => onRate(star)}
+          activeOpacity={0.7}
+        >
+          <Ionicons
+            name={star <= rating ? "star" : "star-outline"}
+            size={sizeValue}
+            color={star <= rating ? COLORS.amber400 : COLORS.slate300}
+          />
+        </TouchableOpacity>
+      ))}
+    </View>
+  );
+};
 // -----------------------------------------------------------
 
 export function ProductDetailPage() {
@@ -74,6 +106,11 @@ export function ProductDetailPage() {
   const [sugar, setSugar] = useState(75); // Thay đổi 50 -> 75 để khớp với step 25
   const [quantity, setQuantity] = useState(1);
   const [note, setNote] = useState("");
+
+  const [editingReviewId, setEditingReviewId] = useState<number | null>(null);
+  const [editComment, setEditComment] = useState("");
+  const [editRating, setEditRating] = useState(5);
+  const [isUpdating, setIsUpdating] = useState(false);
 
   useEffect(() => {
     if (!productId) return;
@@ -128,6 +165,7 @@ export function ProductDetailPage() {
 
     loadRelated();
   }, [product]);
+
   const handleGoBack = () => {
     if (router.canGoBack()) {
       router.back();
@@ -135,6 +173,58 @@ export function ProductDetailPage() {
       router.replace("/(tabs)");
     }
   };
+
+  const handleUpdateReview = async (reviewId: number) => {
+    if (!editComment.trim()) {
+      Alert.alert("Thông báo", "Vui lòng nhập nội dung đánh giá.");
+      return;
+    }
+
+    Alert.alert(
+      "Xác nhận",
+      "Bạn chỉ có thể chỉnh sửa đánh giá một lần duy nhất. Lưu thay đổi này?",
+      [
+        { text: "Hủy", style: "cancel" },
+        {
+          text: "Lưu",
+          onPress: async () => {
+            try {
+              setIsUpdating(true);
+              const res = await updateReviewApi(reviewId, {
+                rating: editRating,
+                comment: editComment,
+              });
+
+              if (res.success) {
+                // Cập nhật UI ngay lập tức
+                setReviews((prev) =>
+                  prev.map((r) =>
+                    r.id === reviewId
+                      ? {
+                          ...r,
+                          rating: editRating,
+                          comment: editComment,
+                          is_edited: true,
+                        }
+                      : r
+                  )
+                );
+                setEditingReviewId(null);
+                Toast.show({ type: "success", text1: "Đã cập nhật đánh giá!" });
+              } else {
+                Alert.alert("Lỗi", "Không thể cập nhật đánh giá.");
+              }
+            } catch (error) {
+              console.error(error);
+            } finally {
+              setIsUpdating(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const isDrink = product
     ? DRINK_CATEGORIES.includes(product.category ?? "")
     : false;
@@ -370,44 +460,107 @@ export function ProductDetailPage() {
               <ActivityIndicator color={COLORS.emerald600} />
             ) : reviews.length > 0 ? (
               <View style={styles.reviewsList}>
-                {reviews.map((review) => (
-                  <View key={review.id} style={styles.reviewItem}>
-                    {/* ✅ SỬ DỤNG AVATAR CỦA NGƯỜI DÙNG ĐANG ĐĂNG NHẬP */}
-                    <Image
-                      source={{
-                        uri:
-                          review.reviewerAvatar ||
-                          "https://placehold.co/100x100?text=User",
-                      }}
-                      style={styles.userAvatar}
-                    />
-                    <View style={styles.reviewContent}>
-                      <View style={styles.reviewMeta}>
-                        <Text style={styles.userName}>
+                {reviews.map((review) => {
+                  const isMyReview = review.user?.[0]?.id === user?.id; // Kiểm tra chính chủ
+                  const canEdit = isMyReview && !review.is_edited; // Chỉ cho sửa nếu chưa sửa lần nào
+                  const isEditing = editingReviewId === review.id;
+
+                  return (
+                    <View key={review.id} style={styles.reviewItem}>
+                      <Image
+                        source={{ uri: review.reviewerAvatar }}
+                        style={styles.userAvatar}
+                      />
+
+                      <View style={styles.reviewContent}>
+                        <View style={styles.reviewMeta}>
                           <Text style={styles.userName}>
                             {review.reviewerName}
                           </Text>
-                        </Text>
-                        {/* ❌ ĐÃ LOẠI BỎ created_on THEO YÊU CẦU */}
+
+                          {/* Nút Sửa: Chỉ hiện nếu thỏa mãn canEdit */}
+                          {canEdit && !isEditing && (
+                            <TouchableOpacity
+                              onPress={() => {
+                                setEditingReviewId(review.id);
+                                setEditComment(review.comment);
+                                setEditRating(review.rating);
+                              }}
+                            >
+                              <Text
+                                style={{
+                                  color: COLORS.emerald600,
+                                  fontSize: 12,
+                                  fontWeight: "bold",
+                                }}
+                              >
+                                Sửa
+                              </Text>
+                            </TouchableOpacity>
+                          )}
+                        </View>
+
+                        {isEditing ? (
+                          // --- GIAO DIỆN KHI ĐANG SỬA ---
+                          <View style={styles.editContainer}>
+                            <RatingStars
+                              rating={editRating}
+                              onRate={setEditRating}
+                              size="sm"
+                            />
+                            <TextInput
+                              style={styles.editInput}
+                              value={editComment}
+                              onChangeText={setEditComment}
+                              multiline
+                            />
+                            <View style={styles.editActions}>
+                              <TouchableOpacity
+                                onPress={() => setEditingReviewId(null)}
+                              >
+                                <Text style={styles.cancelText}>Hủy</Text>
+                              </TouchableOpacity>
+                              <TouchableOpacity
+                                onPress={() => handleUpdateReview(review.id)}
+                                disabled={isUpdating}
+                              >
+                                <Text style={styles.saveText}>
+                                  {isUpdating ? "Đang lưu..." : "Lưu"}
+                                </Text>
+                              </TouchableOpacity>
+                            </View>
+                          </View>
+                        ) : (
+                          // --- GIAO DIỆN HIỂN THỊ BÌNH THƯỜNG ---
+                          <>
+                            <View style={styles.reviewStars}>
+                              {[1, 2, 3, 4, 5].map((s) => (
+                                <Ionicons
+                                  key={s}
+                                  name="star"
+                                  size={12}
+                                  color={
+                                    s <= review.rating
+                                      ? COLORS.amber400
+                                      : COLORS.slate200
+                                  }
+                                />
+                              ))}
+                              {review.is_edited && (
+                                <Text style={styles.editedLabel}>
+                                  (Đã chỉnh sửa)
+                                </Text>
+                              )}
+                            </View>
+                            <Text style={styles.reviewComment}>
+                              {review.comment}
+                            </Text>
+                          </>
+                        )}
                       </View>
-                      <View style={styles.reviewStars}>
-                        {[1, 2, 3, 4, 5].map((s) => (
-                          <Ionicons
-                            key={s}
-                            name="star"
-                            size={12}
-                            color={
-                              s <= review.rating
-                                ? COLORS.amber400
-                                : COLORS.slate200
-                            }
-                          />
-                        ))}
-                      </View>
-                      <Text style={styles.reviewComment}>{review.comment}</Text>
                     </View>
-                  </View>
-                ))}
+                  );
+                })}
               </View>
             ) : (
               <Text style={styles.emptyText}>
@@ -428,32 +581,75 @@ export function ProductDetailPage() {
                 </TouchableOpacity>
               </View>
               <View style={styles.relatedGrid}>
-                {relatedProducts.map((relatedProduct) => (
-                  <TouchableOpacity
-                    key={relatedProduct.id}
-                    onPress={() =>
-                      router.push({
-                        pathname: "/product-detail",
-                        params: { id: relatedProduct.id },
-                      })
-                    }
-                    style={styles.relatedProductCard}
-                  >
-                    <Image
-                      source={{ uri: relatedProduct.image }}
-                      style={styles.relatedProductImage}
-                    />
-                    <View style={styles.relatedProductInfo}>
-                      <Text style={styles.relatedProductName} numberOfLines={2}>
-                        {relatedProduct.name}
-                      </Text>
+                {relatedProducts.map((relatedProduct) => {
+                  // --- LOGIC TÍNH TOÁN CHO TỪNG SP LIÊN QUAN ---
+                  const relPrice = Number(relatedProduct.price) || 0;
+                  const relSalePrice = Number(relatedProduct.salePrice) || 0;
+                  const relHasSale =
+                    relSalePrice > 0 && relSalePrice < relPrice;
 
-                      <Text style={styles.relatedPriceText}>
-                        {Number(relatedProduct.price).toLocaleString("vi-VN")}đ
-                      </Text>
-                    </View>
-                  </TouchableOpacity>
-                ))}
+                  const relDisplayPrice = relHasSale ? relSalePrice : relPrice;
+                  const relDiscountPercent = relHasSale
+                    ? Math.round(((relPrice - relSalePrice) / relPrice) * 100)
+                    : 0;
+
+                  return (
+                    <TouchableOpacity
+                      key={relatedProduct.id}
+                      onPress={() =>
+                        router.push({
+                          pathname: "/product-detail",
+                          params: { id: relatedProduct.id },
+                        })
+                      }
+                      style={styles.relatedProductCard}
+                    >
+                      {/* Image & Badge Layer */}
+                      <View style={styles.relatedImageWrapper}>
+                        <Image
+                          source={{ uri: relatedProduct.image }}
+                          style={styles.relatedProductImage}
+                        />
+
+                        {/* Badge Stack cho SP liên quan */}
+                        <View style={styles.relatedBadgeStack}>
+                          {relHasSale && (
+                            <View style={styles.saleBadgeSmall}>
+                              <Text style={styles.badgeTextSmall}>
+                                -{relDiscountPercent}%
+                              </Text>
+                            </View>
+                          )}
+                          {relPrice > 30000 && (
+                            <View style={styles.hotBadgeSmall}>
+                              <Text style={styles.badgeTextSmall}>🔥 Hot</Text>
+                            </View>
+                          )}
+                        </View>
+                      </View>
+
+                      <View style={styles.relatedProductInfo}>
+                        <Text
+                          style={styles.relatedProductName}
+                          numberOfLines={2}
+                        >
+                          {relatedProduct.name}
+                        </Text>
+
+                        <View style={styles.relatedPriceContainer}>
+                          <Text style={styles.relatedPriceText}>
+                            {relDisplayPrice.toLocaleString("vi-VN")}đ
+                          </Text>
+                          {relHasSale && (
+                            <Text style={styles.relatedOriginalPrice}>
+                              {relPrice.toLocaleString("vi-VN")}đ
+                            </Text>
+                          )}
+                        </View>
+                      </View>
+                    </TouchableOpacity>
+                  );
+                })}
               </View>
             </View>
           )}
@@ -828,5 +1024,122 @@ const styles = StyleSheet.create({
     color: COLORS.slate400,
     fontSize: 14,
     textDecorationLine: "line-through",
+  },
+  editContainer: {
+    marginTop: 8,
+    backgroundColor: COLORS.slate50,
+    padding: 8,
+    borderRadius: 8,
+  },
+  editInput: {
+    borderWidth: 1,
+    borderColor: COLORS.slate200,
+    borderRadius: 6,
+    padding: 8,
+    marginTop: 8,
+    fontSize: 14,
+    backgroundColor: COLORS.white,
+  },
+  editActions: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 16,
+    marginTop: 8,
+  },
+  cancelText: { color: COLORS.slate500, fontWeight: "500" },
+  saveText: { color: COLORS.emerald600, fontWeight: "bold" },
+  editedLabel: {
+    fontSize: 10,
+    color: COLORS.slate400,
+    fontStyle: "italic",
+    marginLeft: 8,
+  },
+  editLinkText: {
+    color: COLORS.emerald600,
+    fontSize: 13,
+    fontWeight: "bold",
+  },
+  editBox: {
+    backgroundColor: COLORS.slate50,
+    padding: 10,
+    borderRadius: 10,
+    marginTop: 5,
+    borderWidth: 1,
+    borderColor: COLORS.slate200,
+  },
+  editTextInput: {
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.slate200,
+    borderRadius: 8,
+    padding: 8,
+    marginTop: 8,
+    fontSize: 14,
+    minHeight: 60,
+    textAlignVertical: "top",
+  },
+  editButtonGroup: {
+    flexDirection: "row",
+    justifyContent: "flex-end",
+    gap: 20,
+    marginTop: 10,
+  },
+  cancelBtnText: {
+    color: COLORS.slate500,
+    fontWeight: "600",
+  },
+  saveBtnText: {
+    color: COLORS.emerald600,
+    fontWeight: "bold",
+  },
+  reviewStarsRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    marginBottom: 4,
+  },
+  editedTag: {
+    fontSize: 10,
+    color: COLORS.slate400,
+    fontStyle: "italic",
+    marginLeft: 8,
+  },
+
+  relatedImageWrapper: {
+    position: "relative",
+    width: "100%",
+    height: 120,
+  },
+  relatedBadgeStack: {
+    position: "absolute",
+    top: 6,
+    left: 6,
+    gap: 4,
+    zIndex: 10,
+  },
+  saleBadgeSmall: {
+    backgroundColor: COLORS.red500,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  hotBadgeSmall: {
+    backgroundColor: COLORS.amber400,
+    paddingHorizontal: 5,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  badgeTextSmall: {
+    color: "#fff",
+    fontSize: 9, // Nhỏ hơn so với sản phẩm chính
+    fontWeight: "bold",
+  },
+  relatedPriceContainer: {
+    marginTop: 4,
+  },
+  relatedOriginalPrice: {
+    fontSize: 11,
+    color: COLORS.slate400,
+    textDecorationLine: "line-through",
+    marginTop: 2,
   },
 });

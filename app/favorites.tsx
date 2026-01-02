@@ -297,8 +297,16 @@ export function FavoritesPage({ goBack }: FavoritesPageProps) {
             columnWrapperStyle={styles.productRow}
             renderItem={({ item: product }) => {
               const isFavorite = favoriteProductIds.includes(product.id);
-              const heartIconName = isFavorite ? "heart" : "heart-outline"; // Ionicons
-              const starIconName = "star"; // Ionicons
+
+              // --- LOGIC TÍNH TOÁN GIÁ & GIẢM GIÁ ---
+              const price = Number(product.price) || 0;
+              const salePrice = Number(product.salePrice) || 0;
+              const hasSale = salePrice > 0 && salePrice < price;
+
+              const displayPrice = hasSale ? salePrice : price;
+              const discountPercent = hasSale
+                ? Math.round(((price - salePrice) / price) * 100)
+                : 0;
 
               return (
                 <TouchableOpacity
@@ -311,32 +319,40 @@ export function FavoritesPage({ goBack }: FavoritesPageProps) {
                 >
                   <View style={styles.productImageWrapper}>
                     <Image
-                      source={{ uri: product.image }} // ✅ Dùng product.image
+                      source={{ uri: product.image }}
                       style={styles.productImage}
                     />
-                    {/* Favorite Button */}
 
+                    {/* Badge Stack (Sale + Hot) */}
+                    <View style={styles.badgeStack}>
+                      {hasSale && (
+                        <View style={styles.saleBadge}>
+                          <Text style={styles.badgeText}>
+                            -{discountPercent}%
+                          </Text>
+                        </View>
+                      )}
+                      {/* Tag Hot: Dựa trên giá hoặc logic tùy chọn của bạn */}
+                      {price > 30000 && (
+                        <View style={styles.hotBadge}>
+                          <Text style={styles.badgeText}>🔥 Hot</Text>
+                        </View>
+                      )}
+                    </View>
+
+                    {/* Favorite Button */}
                     <TouchableOpacity
-                      onPress={(e) => {
-                        // @ts-ignore e.stopPropagation();
-                        toggleFavorite(product.id); // ✅ Dùng ID số
-                      }}
+                      onPress={() => toggleFavorite(product.id)}
                       style={styles.favoriteButton}
                     >
                       <Ionicons
-                        name={heartIconName as IoniconsName}
+                        name={isFavorite ? "heart" : "heart-outline"}
                         size={20}
                         color={isFavorite ? COLORS.red500 : COLORS.slate400}
                       />
                     </TouchableOpacity>
-                    {/* Hot Tag (Giả định) */}
-
-                    {product.price > 55000 && (
-                      <View style={styles.hotTag}>
-                        <Text style={styles.hotTagText}>🔥 Hot</Text>
-                      </View>
-                    )}
                   </View>
+
                   {/* Product Details */}
                   <View style={styles.productDetails}>
                     <Text numberOfLines={2} style={styles.productName}>
@@ -344,12 +360,19 @@ export function FavoritesPage({ goBack }: FavoritesPageProps) {
                     </Text>
 
                     <View style={styles.productFooter}>
-                      <Text style={styles.productPrice}>
-                        {Number(product.price).toLocaleString("vi-VN")}đ
-                      </Text>
+                      <View>
+                        <Text style={styles.productPrice}>
+                          {displayPrice.toLocaleString("vi-VN")}đ
+                        </Text>
+                        {hasSale && (
+                          <Text style={styles.originalPriceSmall}>
+                            {price.toLocaleString("vi-VN")}đ
+                          </Text>
+                        )}
+                      </View>
 
                       <TouchableOpacity
-                        onPress={() => handleAddToCart(product)} // ✅ GỌI ADD TO CART THẬT
+                        onPress={() => handleAddToCart(product)}
                         style={styles.addButton}
                       >
                         <Text style={styles.addButtonText}>+</Text>
@@ -460,15 +483,7 @@ const styles = StyleSheet.create({
   },
   productImageWrapper: { position: "relative", height: 160 },
   productImage: { width: "100%", height: "100%", resizeMode: "cover" },
-  favoriteButton: {
-    position: "absolute",
-    top: 8,
-    right: 8,
-    padding: 8,
-    backgroundColor: COLORS.white,
-    borderRadius: 9999,
-    zIndex: 10,
-  },
+
   hotTag: {
     position: "absolute",
     top: 8,
@@ -497,11 +512,7 @@ const styles = StyleSheet.create({
   ratingStar: { color: COLORS.amber400 },
   ratingTextSmall: { fontSize: 12, color: COLORS.slate600 },
   soldCountText: { fontSize: 12, color: COLORS.slate400 },
-  productFooter: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-  },
+
   productPrice: { color: COLORS.emerald600, fontWeight: "bold", fontSize: 16 },
   addButton: {
     padding: 6,
@@ -521,5 +532,57 @@ const styles = StyleSheet.create({
     flex: 1,
     alignItems: "center",
     paddingHorizontal: 16,
+  },
+
+  // --- Điều chỉnh lại Footer để giá nằm dọc khi có giảm giá ---
+  productFooter: {
+    flexDirection: "row",
+    alignItems: "flex-end", // Căn theo đáy nút "+"
+    justifyContent: "space-between",
+    marginTop: 4,
+  },
+
+  // Nút Favorite cần zIndex cao hơn badge
+  favoriteButton: {
+    position: "absolute",
+    top: 8,
+    right: 8,
+    padding: 8,
+    backgroundColor: "rgba(255, 255, 255, 0.9)", // Hơi trong suốt cho đẹp
+    borderRadius: 9999,
+    zIndex: 20,
+    elevation: 2,
+  },
+  badgeStack: {
+    position: "absolute",
+    top: 8,
+    left: 8,
+    gap: 4,
+    zIndex: 10,
+  },
+  saleBadge: {
+    backgroundColor: COLORS.red500,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  hotBadge: {
+    backgroundColor: COLORS.amber400,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 10,
+    fontWeight: "bold",
+  },
+
+  // --- Giá gốc gạch ngang ---
+  originalPriceSmall: {
+    fontSize: 11,
+    color: COLORS.slate400,
+    textDecorationLine: "line-through",
+    marginTop: 2,
   },
 });

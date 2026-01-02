@@ -29,7 +29,7 @@ import {
 } from "./services/baserowApi";
 
 // --- CẤU HÌNH VÀ HẰNG SỐ ---
-const GEMINI_API_KEY = "AIzaSyAy88GdWEAYlvz425XOBFdmIX3RGjdReoQ";
+const GEMINI_API_KEY = "AIzaSyB-FzckqkoLrULjAbJUxgEAl3qGmqFcRhU";
 const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 const MAX_RETRIES = 3;
@@ -50,6 +50,7 @@ type SuggestionItem = {
   name: string;
   price: number;
   image_url: string;
+  salePrice?: number;
 };
 
 interface Message {
@@ -79,11 +80,13 @@ const createGroundingData = (
   products: ProductRow[],
   categories: CategoryRow[]
 ) => {
-  let productList = "DANH SÁCH SẢN PHẨM HIỆN TẠI (Được giới hạn 50 mục):\n";
+  let productList = "DANH SÁCH SẢN PHẨM HIỆN TẠI (Gồm giá gốc và giá giảm):\n";
   products.slice(0, 50).forEach((p) => {
-    productList += `- Tên: ${p.name}, ID: ${p.id}, Giá: ${p.price}, Danh mục: ${
+    productList += `- Tên: ${p.name}, ID: ${p.id}, Giá gốc: ${
+      p.price
+    }, Giá giảm: ${p.salePrice || "Không có"}, Danh mục: ${
       p.category?.replace(/_/g, " ") || "Không rõ"
-    }, Mô tả: ${p.description.substring(0, 40)}...\n`;
+    }\n`;
   });
 
   let categoryList = "\nDANH MỤC CỬA HÀNG:\n";
@@ -98,12 +101,12 @@ const createGroundingData = (
     Luôn giữ giọng điệu tích cực, chào hỏi thân thiện. KHÔNG trả lời các câu hỏi không liên quan đến sản phẩm/danh mục/cửa hàng.
     
     KHI ĐỀ XUẤT SẢN PHẨM (tối đa 3 món): Bạn phải trả lời bằng cấu trúc JSON sau. Nếu bạn không đề xuất sản phẩm, chỉ trả lời bằng văn bản thuần túy.
-    
+    KHI ĐỀ XUẤT SẢN PHẨM: Nếu sản phẩm có giá giảm (salePrice), hãy ưu tiên giới thiệu.
     CẤU TRÚC JSON YÊU CẦU:
     {
       "text": "[Văn bản giải thích thân thiện cho người dùng]",
       "suggestions": [
-        {"id": 123, "name": "Tên sản phẩm", "price": 45000, "image_url": "URL ảnh"},
+        {"id": 123, "name": "Tên sản phẩm", "price": 45000, "salePrice": 35000,"image_url": "URL ảnh"},
         ...
       ]
     }
@@ -202,32 +205,68 @@ const ProductSuggestionCard: React.FC<ProductSuggestionCardProps> = ({
   onViewDetail,
   onAddToCart,
 }) => {
+  // Logic tính toán tương tự trang Home
+  const price = Number(suggestion.price) || 0;
+  const salePrice = Number(suggestion.salePrice) || 0;
+  const hasSale = salePrice > 0 && salePrice < price;
+  const discountPercent = hasSale
+    ? Math.round(((price - salePrice) / price) * 100)
+    : 0;
+  const isHot = price > 30000;
+
   return (
     <View style={suggestionStyles.card}>
-      <Image
-        source={{ uri: suggestion.image_url }}
-        style={suggestionStyles.image}
-        onError={(e) => console.log("Image Load Error:", e.nativeEvent.error)}
-      />
+      <View style={suggestionStyles.imageContainer}>
+        <Image
+          source={{ uri: suggestion.image_url }}
+          style={suggestionStyles.image}
+        />
+
+        {/* Badge Stack cho Chatbot */}
+        <View style={suggestionStyles.badgeStack}>
+          {hasSale && (
+            <View style={suggestionStyles.saleBadge}>
+              <Text style={suggestionStyles.badgeText}>
+                -{discountPercent}%
+              </Text>
+            </View>
+          )}
+          {isHot && (
+            <View style={suggestionStyles.hotBadge}>
+              <Text style={suggestionStyles.badgeText}>🔥 Hot</Text>
+            </View>
+          )}
+        </View>
+      </View>
+
       <View style={suggestionStyles.info}>
-        <Text style={suggestionStyles.name} numberOfLines={2}>
+        <Text style={suggestionStyles.name} numberOfLines={1}>
           {suggestion.name}
         </Text>
-        <Text style={suggestionStyles.price}>
-          {Number(suggestion.price).toLocaleString("vi-VN")}đ
-        </Text>
+
+        <View style={suggestionStyles.priceRow}>
+          <Text style={suggestionStyles.price}>
+            {(hasSale ? salePrice : price).toLocaleString("vi-VN")}đ
+          </Text>
+          {hasSale && (
+            <Text style={suggestionStyles.originalPrice}>
+              {price.toLocaleString("vi-VN")}đ
+            </Text>
+          )}
+        </View>
+
         <View style={suggestionStyles.actions}>
           <TouchableOpacity
             style={suggestionStyles.detailButton}
             onPress={() => onViewDetail(suggestion.id)}
           >
-            <Text style={suggestionStyles.detailText}>Xem</Text>
+            <Text style={suggestionStyles.detailText}>Chi tiết</Text>
           </TouchableOpacity>
           <TouchableOpacity
             style={suggestionStyles.addButton}
             onPress={() => onAddToCart(suggestion)}
           >
-            <Feather name="plus" size={16} color={COLORS.white} />
+            <Feather name="plus" size={14} color={COLORS.white} />
             <Text style={suggestionStyles.addText}>Thêm</Text>
           </TouchableOpacity>
         </View>
@@ -334,6 +373,7 @@ export function ChatbotScreen() {
               productDetail?.image ||
               "https://placehold.co/150x150/f0f9ff/64748b?text=N%2FA",
             price: productDetail?.price || s.price,
+            salePrice: productDetail?.salePrice || s.salePrice,
           };
         });
       }
@@ -371,19 +411,25 @@ export function ChatbotScreen() {
   };
 
   const handleAddToCart = (suggestion: SuggestionItem) => {
-    // Giả định các sản phẩm được đề xuất là đồ uống (hoặc thiết lập mặc định)
     const productDetail = products.find((p) => p.id === suggestion.id);
 
-    // Kiểm tra loại sản phẩm dựa trên Category đã chuẩn hóa
     const isDrink = productDetail
       ? DRINK_CATEGORIES_NORMALIZED.includes(productDetail.category ?? "")
-      : false; // ✅ FIX NULLISH COALESCING
+      : false;
+
+    // --- LOGIC TÍNH GIÁ ĐỂ CHO VÀO GIỎ ---
+    // Ưu tiên lấy salePrice nếu có và hợp lệ
+    const originalPrice = Number(suggestion.price) || 0;
+    const salePrice = Number(suggestion.salePrice) || 0;
+
+    const finalPrice =
+      salePrice > 0 && salePrice < originalPrice ? salePrice : originalPrice;
 
     addToCart({
       productId: suggestion.id.toString(),
       name: suggestion.name,
       image: suggestion.image_url,
-      price: suggestion.price,
+      price: finalPrice, // ✅ Đã dùng giá cuối cùng (đã giảm nếu có)
       quantity: 1,
       size: "M",
       ice: isDrink ? 75 : 0,
@@ -394,10 +440,10 @@ export function ChatbotScreen() {
     Toast.show({
       type: "success",
       text1: "Đã thêm vào giỏ",
-      text2: `${suggestion.name} x 1`,
+      text2: `${suggestion.name} - ${finalPrice.toLocaleString("vi-VN")}đ`,
       visibilityTime: 1500,
     });
-  }; // 3. RENDER ITEM
+  };
 
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.sender === "user";
@@ -567,6 +613,43 @@ const suggestionStyles = StyleSheet.create({
     fontSize: 13,
     fontWeight: "bold",
   },
+  imageContainer: {
+    position: "relative",
+  },
+  badgeStack: {
+    position: "absolute",
+    top: 4,
+    left: 4,
+    gap: 3,
+  },
+  saleBadge: {
+    backgroundColor: "#ef4444", // Red 500
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  hotBadge: {
+    backgroundColor: "#fbbf24", // Amber 400
+    paddingHorizontal: 4,
+    paddingVertical: 2,
+    borderRadius: 4,
+  },
+  badgeText: {
+    color: "#fff",
+    fontSize: 9,
+    fontWeight: "bold",
+  },
+  priceRow: {
+    flexDirection: "row",
+    alignItems: "center",
+    gap: 6,
+  },
+  originalPrice: {
+    fontSize: 12,
+    color: "#94a3b8",
+    textDecorationLine: "line-through",
+  },
+  // Điều chỉnh lại card cho gọn
 });
 
 // --- STYLES CHO CHATBOT CONTAINER ---

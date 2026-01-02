@@ -174,6 +174,7 @@ export function ReviewPage() {
           comment: review?.comment || "Đánh giá tuyệt vời!",
           productId: pId,
           userId: user.id,
+          is_edited: false,
         });
       });
 

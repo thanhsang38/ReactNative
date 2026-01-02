@@ -105,6 +105,7 @@ export interface ReviewRow {
   user: [{ id: number }];
   reviewerName: string;
   reviewerAvatar: string;
+  is_edited: boolean;
 }
 interface BaserowListResponse<T> {
   count: number;
@@ -1114,6 +1115,7 @@ export const createReview = async (payload: {
   comment: string;
   productId: number;
   userId: number;
+  is_edited: false;
 }) => {
   const endpoint = `${REVIEWS_TABLE_ID}/?user_field_names=true`;
 
@@ -1122,6 +1124,7 @@ export const createReview = async (payload: {
     comment: payload.comment,
     product: [payload.productId], // Liên kết sản phẩm
     user: [payload.userId], // Liên kết người dùng
+    is_edited: false,
   };
 
   try {
@@ -1184,5 +1187,24 @@ export const getReviewsByProduct = async (
   } catch (error) {
     console.error("Lỗi lấy đánh giá:", error);
     return { success: false, data: [] };
+  }
+};
+
+export const updateReviewApi = async (
+  reviewId: number,
+  data: { rating: number; comment: string }
+) => {
+  try {
+    const payload = {
+      ...data,
+      is_edited: true, // ✅ Đánh dấu đã sửa, sau này sẽ không cho sửa nữa
+    };
+    const response = await axiosClient.patch(
+      `${REVIEWS_TABLE_ID}/${reviewId}/?user_field_names=true`,
+      payload
+    );
+    return { success: true, data: response };
+  } catch (error) {
+    return { success: false, message: "Cập nhật đánh giá thất bại." };
   }
 };
