@@ -11,8 +11,6 @@
     "ios": {
       "supportsTablet": true
     },
-   
-
     "android": {
       "adaptiveIcon": {
         "backgroundColor": "#E6F4FE",
@@ -53,7 +51,10 @@
           }
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-community/datetimepicker",
+      "expo-web-browser",
+      "expo-notifications"
     ],
     "experiments": {
       "typedRoutes": true,
@@ -62,7 +63,7 @@
     "extra": {
       "router": {},
       "eas": {
-        "projectId": "8da6a535-5be8-4ddd-8b8c-8bf45728acff"
+        "projectId": "d3ed24bf-2d99-4270-9c6e-fdd2c201ab2c"
       }
     },
     "owner": "xannn"

@@ -6,6 +6,7 @@ import React, { useEffect, useRef, useState } from "react";
 import { Controller, SubmitHandler, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
+  Alert,
   StyleSheet,
   Text,
   TextInput,
@@ -87,7 +88,11 @@ export function ForgotPasswordScreen({
   const singleOtpRef = useRef<TextInput | null>(null);
 
   // --- Effects ---
-
+  useEffect(() => {
+    // Khởi tạo EmailJS ngay khi mở màn hình quên mật khẩu
+    emailjs.init("W5jQbZRRjkKMjG4t_");
+    console.log("EmailJS đã được khởi tạo trên Android");
+  }, []);
   // Countdown timer effect (Giữ nguyên)
   useEffect(() => {
     let id: number | null = null;
@@ -106,33 +111,56 @@ export function ForgotPasswordScreen({
 
   const handleEmailSubmit: SubmitHandler<EmailFormData> = async (data) => {
     try {
+      // 1️⃣ Kiểm tra email tồn tại trong hệ thống Baserow
       const userCheck = await findUserByEmail(data.email);
 
       if (!userCheck.success) {
-        Toast.show({
-          type: "error",
-          text1: "Lỗi API",
-          text2: userCheck.message || "Lỗi kiểm tra email.",
-          visibilityTime: 3000,
-        });
+        Alert.alert(
+          "Lỗi kết nối",
+          userCheck.message || "Không thể kiểm tra email"
+        );
         return;
       }
+
       if (!userCheck.data) {
-        // Báo lỗi rõ ràng rằng tài khoản không tồn tại
-        Toast.show({
-          type: "custom",
-          text1: "Lỗi",
-          text2: "Tài khoản email này không tồn tại.",
-          visibilityTime: 3000,
-          props: { variant: "error" },
-        });
+        Alert.alert("Thông báo", "Tài khoản email này không tồn tại");
         return;
       }
+
+      // 2️⃣ Tạo mã OTP và thời hạn
       const otp = generateOTP();
       const expiredAt = getExpireISO();
 
-      // 1️⃣ Lưu OTP vào Baserow (Giữ nguyên)
-      await fetch(
+      // 3️⃣ GỬI EMAIL QUA REST API
+      // (Cách này an toàn nhất cho Android Expo Go để tránh lỗi 403)
+      const emailRes = await fetch(
+        "https://api.emailjs.com/api/v1.0/email/send",
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            service_id: "service_hc4sso2",
+            template_id: "template_0scq2zf",
+            user_id: "W5jQbZRRjkKMjG4t_", // Public Key của bạn
+            template_params: {
+              to_email: data.email,
+              otp: otp,
+            },
+          }),
+        }
+      );
+
+      const emailStatus = await emailRes.text();
+
+      if (!emailRes.ok) {
+        // Nếu vẫn lỗi 403, hãy kiểm tra lại mục "API Settings" trên web EmailJS
+        throw new Error(`EmailJS Error: ${emailStatus}`);
+      }
+
+      // 4️⃣ CHỈ LƯU OTP VÀO DATABASE KHI EMAIL ĐÃ GỬI THÀNH CÔNG
+      const saveOtpRes = await fetch(
         "https://api.baserow.io/api/database/rows/table/772052/?user_field_names=true",
         {
           method: "POST",
@@ -142,41 +170,37 @@ export function ForgotPasswordScreen({
           },
           body: JSON.stringify({
             email: data.email,
-            otp,
+            otp: otp,
             expired_at: expiredAt,
             used: false,
           }),
         }
       );
 
-      // 2️⃣ Gửi email OTP (Giữ nguyên)
-      await emailjs.send(
-        "service_hc4sso2",
-        "template_0scq2zf",
-        {
-          to_email: data.email,
-          otp,
-        },
-        "W5jQbZRRjkKMjG4t_"
-      );
+      if (!saveOtpRes.ok) {
+        throw new Error("Lưu mã xác thực thất bại");
+      }
 
+      // 5️⃣ Chuyển sang bước nhập mã (Step 2)
       setEmail(data.email);
       setStep(2);
       setCountdown(60);
-      setOtpValue(""); // Reset giá trị OTP cũ
+      setOtpValue("");
 
       Toast.show({
         type: "success",
-        text1: "Mã OTP đã được gửi về email",
+        text1: "Thành công",
+        text2: "Mã OTP đã được gửi về email của bạn",
       });
 
-      // ✅ Focus vào thanh input OTP duy nhất
-      setTimeout(() => singleOtpRef.current?.focus(), 300);
-    } catch (err) {
-      Toast.show({
-        type: "error",
-        text1: "Gửi OTP thất bại",
-      });
+      // Tự động focus vào ô nhập mã
+      setTimeout(() => singleOtpRef.current?.focus(), 500);
+    } catch (err: any) {
+      console.log("CHI TIẾT LỖI:", err.message);
+      Alert.alert(
+        "Lỗi hệ thống",
+        "Không thể gửi mã. Bạn hãy kiểm tra lại cấu hình Security trên EmailJS Dashboard nhé!"
+      );
     }
   };
 
@@ -193,42 +217,50 @@ export function ForgotPasswordScreen({
   };
 
   const handleOtpComplete = async (value: string) => {
-    // Không cần Keyboard.dismiss vì không gặp vấn đề nhảy focus nữa
     setIsVerifying(true);
 
     try {
-      // 1️⃣ Lấy dữ liệu OTP từ Baserow (Giữ nguyên)
-      const res = await fetch(
-        `https://api.baserow.io/api/database/rows/table/772052/?user_field_names=true
-            &filter__email__equal=${email}
-            &filter__otp__equal=${value}
-            &filter__used__equal=false`,
-        {
-          headers: {
-            Authorization: "Token 78WCfXpbSExuHx3YTJ2CfO2rnMSSCosd",
-          },
-        }
-      );
-      console.log("Fetching URL:", res);
-      const data = await res.json();
-      console.log("Baserow Response Data:", data);
+      const url =
+        `https://api.baserow.io/api/database/rows/table/772052/` +
+        `?user_field_names=true` +
+        `&filter__email__equal=${encodeURIComponent(email)}` +
+        `&filter__otp__equal=${value}` +
+        `&filter__used__equal=false`;
+
+      console.log("OTP VERIFY URL:", url);
+      console.log("EMAIL STATE:", email);
+      console.log("OTP INPUT:", value);
+
+      const res = await fetch(url, {
+        headers: {
+          Authorization: "Token 78WCfXpbSExuHx3YTJ2CfO2rnMSSCosd",
+        },
+      });
+
+      console.log("HTTP STATUS:", res.status);
+      console.log("HTTP OK:", res.ok);
+
+      const rawText = await res.text();
+      console.log("RAW RESPONSE:", rawText);
+
+      const data = JSON.parse(rawText);
+      console.log("PARSED DATA:", data);
+
       if (!data.results || data.results.length === 0) {
-        // ✅ Dùng console.error để dễ thấy hơn
-        console.error(
-          "Lỗi: Không tìm thấy bản ghi OTP hợp lệ (hoặc đã dùng/hết hạn)."
-        );
-        throw new Error("OTP_INVALID_OR_NOT_FOUND");
+        throw new Error("OTP_NOT_FOUND");
       }
 
       const record = data.results[0];
+
+      console.log("EXPIRED_AT:", record.expired_at);
+      console.log("NOW:", new Date().toISOString());
+
       if (new Date(record.expired_at) < new Date()) {
-        console.error("Lỗi: Mã OTP đã hết hạn dựa trên client time.");
         throw new Error("OTP_EXPIRED");
       }
 
-      // 2️⃣ Đánh dấu OTP đã dùng
       await fetch(
-        `https://api.baserow.io/api/database/rows/table/772052/${record.id}/?user_field_names=true`,
+        `https://api.baserow.io/api/database/rows/table/772052/${record.id}/`,
         {
           method: "PATCH",
           headers: {
@@ -239,27 +271,18 @@ export function ForgotPasswordScreen({
         }
       );
 
-      Toast.show({
-        type: "success",
-        text1: "Xác thực OTP thành công",
-      });
-
+      Toast.show({ type: "success", text1: "Xác thực OTP thành công" });
       setStep(3);
-    } catch (e) {
-      // Xử lý lỗi cụ thể
-      const errorText = e instanceof Error ? e.message : "UNKNOWN_ERROR";
-      let text2 = "OTP sai hoặc đã hết hạn";
-
-      if (errorText.includes("OTP_EXPIRED")) {
-        text2 = "Mã OTP đã hết hạn. Vui lòng gửi lại.";
-      }
+    } catch (e: any) {
+      console.error("OTP VERIFY ERROR:", e);
 
       Toast.show({
         type: "error",
-        text1: "Lỗi xác thực",
-        text2: text2,
+        text1: "Lỗi OTP",
+        text2: e?.message || "UNKNOWN_ERROR",
       });
-      setOtpValue(""); // Reset input
+
+      setOtpValue("");
       singleOtpRef.current?.focus();
     } finally {
       setIsVerifying(false);
