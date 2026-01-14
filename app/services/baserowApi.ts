@@ -16,6 +16,9 @@ export interface UserRow {
   avatar?: string | null;
   password_hash: string;
   favorites?: { id: number }[] | [];
+  order_count?: number; // Cột Count từ bảng Orders
+  voucher_count?: number; // Cột Count từ bảng Vouchers
+  rating?: number | string; // Cột Rollup tính trung bình sao
 }
 
 export interface ProductRow {

@@ -202,6 +202,14 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
       fetchAllData();
     }, [fetchAllData])
   );
+
+  const getFinalPrice = (product: ProductRow) => {
+    if (product.salePrice && Number(product.salePrice) > 0) {
+      return Number(product.salePrice);
+    }
+    return Number(product.price);
+  };
+
   const processedProducts = useMemo(() => {
     let filtered = allProducts;
 
@@ -243,19 +251,24 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
 
     // 3. Lọc theo GIÁ & RATING (Tương tự logic FilterModal)
     filtered = filtered.filter((product) => {
-      const matchesPrice =
-        product.price >= filters.priceRange[0] &&
-        product.price <= filters.priceRange[1];
-      return matchesPrice;
+      const finalPrice = getFinalPrice(product);
+
+      return (
+        finalPrice >= filters.priceRange[0] &&
+        finalPrice <= filters.priceRange[1]
+      );
     });
 
     // 4. Sắp xếp
     return [...filtered].sort((a, b) => {
+      const priceA = getFinalPrice(a);
+      const priceB = getFinalPrice(b);
+
       switch (filters.sortBy) {
         case "price-low":
-          return a.price - b.price;
+          return priceA - priceB;
         case "price-high":
-          return b.price - a.price;
+          return priceB - priceA;
         default:
           return 0;
       }

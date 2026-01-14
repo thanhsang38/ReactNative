@@ -1,18 +1,18 @@
-import React, { ComponentProps } from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  ScrollView,
-  Image,
-  Alert,
-  Platform,
-} from "react-native";
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import React, { ComponentProps } from "react";
+import {
+  Alert,
+  Image,
+  Linking,
+  ScrollView,
+  StyleSheet,
+  Text,
+  TouchableOpacity,
+  View,
+} from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 💡 IMPORTS CONTEXTS & TYPES
 import { useAuth } from "../../context/AuthContext";
@@ -47,10 +47,11 @@ const COLORS = {
 
 // --- Profile Logic ---
 export function ProfilePage() {
-  const { user, signOut } = useAuth();
+  const { user, signOut, refreshUser } = useAuth();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
+  const orderCount = user?.order_count ?? 0;
+  const voucherCount = user?.voucher_count ?? 0;
   // 💡 SỬ DỤNG ICON NAME VÀ COMPONENT TYPE RÕ RÀNG
   const menuItems = [
     // 1. Thông tin cá nhân (Feather)
@@ -68,6 +69,22 @@ export function ProfilePage() {
       route: "/address",
       color: COLORS.blue600,
       IconComponent: Feather,
+    },
+    {
+      // 🔥 ĐÂY LÀ MỤC CHAT MỚI
+      iconName: "message-circle" as FeatherIconName,
+      label: "Chat với Admin",
+      route: "/support-chat", // Đường dẫn tới file chat.tsx của bạn
+      IconComponent: Feather,
+      color: COLORS.emerald600, // Cho màu xanh Emerald để nổi bật
+    },
+    {
+      iconName: "message-circle" as FeatherIconName,
+      label: "Zalo Admin",
+      // Thay đổi route thành link zalo.me
+      route: "https://zalo.me/0374522557",
+      IconComponent: Feather,
+      color: "#0068ff", // Màu xanh đặc trưng của Zalo
     },
     // 3. Yêu thích (Ionicons)
     {
@@ -116,6 +133,12 @@ export function ProfilePage() {
     },
   ];
 
+  // useFocusEffect(
+  //   React.useCallback(() => {
+  //     refreshUser();
+  //   }, [])
+  // );
+
   const handleLogout = () => {
     Alert.alert(
       "Xác nhận Đăng xuất",
@@ -139,8 +162,23 @@ export function ProfilePage() {
     );
   };
 
-  const handleNavigate = (route: string) => {
-    router.push(route as any);
+  const handleNavigate = async (route: string) => {
+    // Kiểm tra nếu route bắt đầu bằng http (link Zalo hoặc web ngoài)
+    if (route.startsWith("http")) {
+      try {
+        const supported = await Linking.canOpenURL(route);
+        if (supported) {
+          await Linking.openURL(route);
+        } else {
+          Alert.alert("Lỗi", "Không thể mở ứng dụng Zalo");
+        }
+      } catch (error) {
+        console.error("Link error:", error);
+      }
+    } else {
+      // Nếu là route nội bộ thì dùng router của expo-router như cũ
+      router.push(route as any);
+    }
   };
 
   return (
@@ -198,13 +236,13 @@ export function ProfilePage() {
           <View style={styles.statsGrid}>
             <View style={styles.statItem}>
               <Text style={[styles.statValue, { color: COLORS.emerald600 }]}>
-                12
+                {orderCount}
               </Text>
               <Text style={styles.statLabel}>Đơn hàng</Text>
             </View>
             <View style={styles.statItem}>
               <Text style={[styles.statValue, { color: COLORS.amber600 }]}>
-                5
+                {voucherCount}
               </Text>
               <Text style={styles.statLabel}>Ưu đãi</Text>
             </View>

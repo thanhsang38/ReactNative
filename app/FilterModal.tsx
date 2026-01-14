@@ -1,21 +1,19 @@
 import { Feather } from "@expo/vector-icons";
-import Slider from "@react-native-community/slider";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
+  Alert,
   Dimensions,
   Modal,
   ScrollView,
   StyleSheet,
   Text,
+  TextInput,
   TouchableOpacity,
   View,
 } from "react-native";
 
-// --- Interfaces và Constants ---
-const { width } = Dimensions.get("window");
-
-// 💡 INTERFACE NÀY PHẢI KHỚP VỚI CÁI DÙNG TRONG MenuPage.tsx
+// -------------------- TYPES --------------------
 export interface FilterOptions {
   priceRange: number[];
   rating: number | null;
@@ -29,7 +27,9 @@ interface FilterModalProps {
   currentFilters: FilterOptions;
 }
 
-// ❌ ĐÃ XÓA RATING_OPTIONS
+// -------------------- CONSTANTS --------------------
+const MIN_PRICE = 0;
+const MAX_PRICE = 1_000_000;
 
 const SORT_OPTIONS = [
   { id: "popular", label: "Phổ biến nhất" },
@@ -37,67 +37,89 @@ const SORT_OPTIONS = [
   { id: "price-high", label: "Giá cao nhất" },
 ];
 
-const MIN_PRICE = 0;
-const MAX_PRICE = 1000000;
-
-// Màu sắc
+// -------------------- COLORS --------------------
 const COLORS = {
   white: "#ffffff",
-  slate100: "#f1f5f9",
   slate200: "#e2e8f0",
-  slate400: "#94a3b8",
   slate600: "#475569",
   slate700: "#334155",
   slate800: "#1e293b",
   emerald500: "#10b981",
-  teal600: "#0d9488",
-  red500: "#ef4444",
-  amber400: "#fbbf24",
   emerald600: "#059669",
+  teal600: "#0d9488",
 };
 
-// -----------------------------------------------------------
-
+// =================================================
 export function FilterModal({
   isOpen,
   onClose,
   onApply,
   currentFilters,
 }: FilterModalProps) {
-  const [tempPriceRange, setTempPriceRange] = useState(
-    currentFilters.priceRange
-  ); // ❌ ĐÃ XÓA state tempRating
-  const [tempSortBy, setTempSortBy] = useState(currentFilters.sortBy); // 💡 Đồng bộ hóa state tạm thời khi modal mở/đóng
+  const [minPrice, setMinPrice] = useState<string>(
+    String(currentFilters.priceRange[0])
+  );
+  const [maxPrice, setMaxPrice] = useState<string>(
+    String(currentFilters.priceRange[1])
+  );
 
-  React.useEffect(() => {
-    setTempPriceRange(currentFilters.priceRange); // ❌ ĐÃ XÓA setTempRating
+  const [tempSortBy, setTempSortBy] = useState(currentFilters.sortBy);
+
+  useEffect(() => {
+    setMinPrice(String(currentFilters.priceRange[0]));
+    setMaxPrice(String(currentFilters.priceRange[1]));
+
     setTempSortBy(currentFilters.sortBy);
   }, [isOpen]);
+
+  // -------------------- HANDLERS --------------------
+  const handleApply = () => {
+    const min = minPrice === "" ? MIN_PRICE : Number(minPrice);
+    const max = maxPrice === "" ? MAX_PRICE : Number(maxPrice);
+
+    if (isNaN(min) || isNaN(max)) {
+      Alert.alert("Lỗi", "Giá không hợp lệ");
+      return;
+    }
+
+    if (min < 0 || max < 0) {
+      Alert.alert("Lỗi", "Giá không được âm");
+      return;
+    }
+
+    if (min > max) {
+      Alert.alert("Lỗi", "Giá từ không được lớn hơn giá đến");
+      return;
+    }
+
+    if (max > MAX_PRICE) {
+      Alert.alert("Lỗi", "Giá vượt quá giới hạn cho phép");
+      return;
+    }
+
+    onApply({
+      priceRange: [min, max],
+      rating: null,
+      sortBy: tempSortBy,
+    });
+
+    onClose();
+  };
 
   const handleClearFilters = () => {
     onApply({
       priceRange: [MIN_PRICE, MAX_PRICE],
-      rating: null, // Giữ lại giá trị null cho rating
+      rating: null,
       sortBy: "popular",
     });
     onClose();
   };
 
-  const handleApply = () => {
-    onApply({
-      priceRange: tempPriceRange,
-      rating: currentFilters.rating, // Giữ nguyên rating hiện tại (hoặc set null nếu bạn muốn xóa)
-      sortBy: tempSortBy,
-    });
-    onClose();
-  }; // Logic hiển thị giá trị slider (chỉ lấy giá trị cao nhất cho slider đơn)
-
-  const displayPrice = tempPriceRange[1].toLocaleString("vi-VN");
-
+  // -------------------- RENDER --------------------
   return (
     <Modal
       visible={isOpen}
-      transparent={true}
+      transparent
       animationType="slide"
       onRequestClose={onClose}
     >
@@ -106,86 +128,89 @@ export function FilterModal({
           {/* Header */}
           <View style={styles.header}>
             <Text style={styles.headerTitle}>Bộ lọc & Sắp xếp</Text>
-            <TouchableOpacity onPress={onClose} style={styles.closeButton}>
+            <TouchableOpacity onPress={onClose}>
               <Feather name="x" size={24} color={COLORS.slate700} />
             </TouchableOpacity>
           </View>
+
           <ScrollView contentContainerStyle={styles.scrollContent}>
-            {/* Price Range */}
+            {/* PRICE FILTER */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Phạm vi giá</Text>
-              <View style={styles.priceRangeDisplay}>
-                <Text style={styles.priceRangeText}>
-                  {tempPriceRange[0].toLocaleString("vi-VN")}đ - Dưới
-                  {displayPrice}đ
-                </Text>
-              </View>
-              {/* ⚠️ CHÚ Ý: Sử dụng Slider đơn giản cho RN */}
-              <Slider
-                style={styles.slider}
-                minimumValue={MIN_PRICE}
-                maximumValue={MAX_PRICE}
-                step={10000}
-                value={tempPriceRange[1]}
-                onValueChange={(value) => setTempPriceRange([MIN_PRICE, value])}
-                minimumTrackTintColor={COLORS.emerald500}
-                maximumTrackTintColor={COLORS.slate200}
-                thumbTintColor={COLORS.emerald600}
-              />
-              <View style={styles.rangeLabels}>
-                <Text style={styles.rangeLabelText}>
-                  {MIN_PRICE.toLocaleString()}đ
-                </Text>
-                <Text style={styles.rangeLabelText}>
-                  {MAX_PRICE.toLocaleString()}đ
-                </Text>
+
+              <View style={styles.priceInputRow}>
+                <View style={styles.priceInputBox}>
+                  <Text style={styles.priceLabel}>Từ</Text>
+                  <TextInput
+                    style={styles.priceInput}
+                    keyboardType="number-pad"
+                    value={minPrice.toString()}
+                    onChangeText={(t) => {
+                      const value = t.replace(/\D/g, "");
+                      setMinPrice(value);
+                    }}
+                    placeholder="0"
+                  />
+                </View>
+
+                <Text style={styles.priceSeparator}>—</Text>
+
+                <View style={styles.priceInputBox}>
+                  <Text style={styles.priceLabel}>Đến</Text>
+                  <TextInput
+                    style={styles.priceInput}
+                    keyboardType="number-pad"
+                    value={maxPrice.toString()}
+                    onChangeText={(t) => {
+                      const value = t.replace(/\D/g, "");
+                      setMaxPrice(value);
+                    }}
+                    placeholder={MAX_PRICE.toString()}
+                  />
+                </View>
               </View>
             </View>
 
+            {/* SORT */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Sắp xếp theo</Text>
-              <View style={styles.sortOptionsList}>
-                {SORT_OPTIONS.map((option) => {
-                  const isActive = tempSortBy === option.id;
-                  return (
-                    <TouchableOpacity
-                      key={option.id}
-                      onPress={() => setTempSortBy(option.id as any)}
-                      style={styles.sortButton}
-                    >
-                      <Text style={styles.sortLabel}>{option.label}</Text>
-                      {isActive && (
-                        <View style={styles.radioCheck}>
-                          <Feather
-                            name="check"
-                            size={16}
-                            color={COLORS.emerald600}
-                          />
-                        </View>
-                      )}
-                    </TouchableOpacity>
-                  );
-                })}
-              </View>
+              {SORT_OPTIONS.map((opt) => {
+                const active = tempSortBy === opt.id;
+                return (
+                  <TouchableOpacity
+                    key={opt.id}
+                    style={styles.sortItem}
+                    onPress={() => setTempSortBy(opt.id as any)}
+                  >
+                    <Text style={styles.sortLabel}>{opt.label}</Text>
+                    {active && (
+                      <Feather
+                        name="check"
+                        size={18}
+                        color={COLORS.emerald600}
+                      />
+                    )}
+                  </TouchableOpacity>
+                );
+              })}
             </View>
-            <View style={{ height: 20 }} />
           </ScrollView>
 
+          {/* ACTION BAR */}
           <View style={styles.actionBar}>
             <TouchableOpacity
-              onPress={handleClearFilters}
               style={styles.clearButton}
+              onPress={handleClearFilters}
             >
-              <Text style={styles.clearButtonText}>Xóa lọc</Text>
+              <Text style={styles.clearText}>Xóa lọc</Text>
             </TouchableOpacity>
-            <TouchableOpacity onPress={handleApply} style={styles.applyButton}>
+
+            <TouchableOpacity style={styles.applyButton} onPress={handleApply}>
               <LinearGradient
                 colors={[COLORS.emerald500, COLORS.teal600]}
-                start={{ x: 0, y: 0 }}
-                end={{ x: 1, y: 0 }}
                 style={StyleSheet.absoluteFill}
               />
-              <Text style={styles.applyButtonText}>Áp dụng</Text>
+              <Text style={styles.applyText}>Áp dụng</Text>
             </TouchableOpacity>
           </View>
         </View>
@@ -194,119 +219,82 @@ export function FilterModal({
   );
 }
 
-// -----------------------------------------------------------
-// 💡 STYLE SHEET
-// -----------------------------------------------------------
+export default FilterModal;
 
+// =================================================
+// STYLES
+// =================================================
 const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
-    backgroundColor: "rgba(0, 0, 0, 0.5)",
+    backgroundColor: "rgba(0,0,0,0.4)",
     justifyContent: "flex-end",
   },
   modalContainer: {
     backgroundColor: COLORS.white,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
-    width: "100%",
-    maxHeight: Dimensions.get("window").height * 0.85, // Giới hạn chiều cao
-    overflow: "hidden",
+    maxHeight: Dimensions.get("window").height * 0.85,
   },
   header: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    alignItems: "center",
     padding: 16,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.slate200,
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
   },
   headerTitle: {
     fontSize: 20,
     fontWeight: "bold",
     color: COLORS.slate800,
   },
-  closeButton: {
-    padding: 8,
-  },
   scrollContent: {
-    paddingHorizontal: 16,
-    paddingVertical: 16,
+    padding: 16,
   },
   section: {
     marginBottom: 24,
-    backgroundColor: COLORS.white,
-    borderRadius: 16,
-    padding: 16,
-    shadowColor: "#000",
-    shadowOffset: { width: 0, height: 1 },
-    shadowOpacity: 0.05,
-    shadowRadius: 2,
-    elevation: 2,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: "bold",
     color: COLORS.slate800,
     marginBottom: 12,
-  }, // --- Price Range ---
-  priceRangeDisplay: {
-    alignItems: "center",
-    marginBottom: 8,
   },
-  priceRangeText: {
-    fontSize: 18,
-    color: COLORS.emerald600,
-    fontWeight: "bold",
-  },
-  slider: {
-    width: "100%",
-    height: 40,
-  },
-  rangeLabels: {
+
+  // PRICE INPUT
+  priceInputRow: {
     flexDirection: "row",
-    justifyContent: "space-between",
-    marginTop: -10,
+    alignItems: "center",
   },
-  rangeLabelText: {
+  priceInputBox: {
+    flex: 1,
+  },
+  priceLabel: {
     fontSize: 12,
     color: COLORS.slate600,
-  }, // --- Rating Filter ---
-  ratingGrid: {
-    flexDirection: "row",
-    justifyContent: "space-between",
-    gap: 8,
+    marginBottom: 4,
   },
-  ratingButton: {
-    flexDirection: "row",
-    alignItems: "center",
-    paddingVertical: 10,
-    paddingHorizontal: 16,
-    borderRadius: 8,
+  priceInput: {
     borderWidth: 1,
     borderColor: COLORS.slate200,
-    gap: 4,
+    borderRadius: 12,
+    paddingVertical: 12,
+    paddingHorizontal: 14,
+    fontSize: 16,
+    color: COLORS.slate800,
   },
-  ratingButtonActive: {
-    backgroundColor: COLORS.amber400, // Thay thế cho fill-amber-400
-    borderColor: COLORS.amber400,
-    shadowColor: COLORS.amber400,
-    shadowOffset: { width: 0, height: 2 },
-    shadowOpacity: 0.2,
-    shadowRadius: 3,
-    elevation: 3,
+  priceSeparator: {
+    marginHorizontal: 12,
+    fontSize: 18,
+    color: COLORS.slate600,
   },
-  ratingText: {
-    fontSize: 14,
-  }, // --- Sort By ---
-  sortOptionsList: {
-    gap: 8,
-  },
-  sortButton: {
+
+  // SORT
+  sortItem: {
+    paddingVertical: 12,
     flexDirection: "row",
     justifyContent: "space-between",
-    alignItems: "center",
-    paddingVertical: 12,
-    paddingHorizontal: 10,
     borderBottomWidth: 1,
     borderBottomColor: COLORS.slate200,
   },
@@ -314,50 +302,36 @@ const styles = StyleSheet.create({
     fontSize: 16,
     color: COLORS.slate700,
   },
-  radioCheck: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderColor: COLORS.emerald600,
-    borderWidth: 2,
-    alignItems: "center",
-    justifyContent: "center",
-  }, // --- Action Bar ---
+
+  // ACTION
   actionBar: {
     flexDirection: "row",
+    gap: 12,
     padding: 16,
     borderTopWidth: 1,
     borderTopColor: COLORS.slate200,
-    gap: 16,
   },
   clearButton: {
     flex: 1,
-    paddingVertical: 16,
-    borderRadius: 12,
     borderWidth: 1,
     borderColor: COLORS.slate200,
+    borderRadius: 12,
+    paddingVertical: 14,
     alignItems: "center",
-    justifyContent: "center",
   },
-  clearButtonText: {
-    color: COLORS.slate700,
+  clearText: {
     fontSize: 16,
     fontWeight: "bold",
+    color: COLORS.slate700,
   },
   applyButton: {
     flex: 2,
     borderRadius: 12,
-    overflow: "hidden",
-    paddingVertical: 16,
-    position: "relative",
-    shadowColor: COLORS.emerald500,
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.3,
-    shadowRadius: 5,
-    elevation: 5,
+    paddingVertical: 14,
     alignItems: "center",
+    overflow: "hidden",
   },
-  applyButtonText: {
+  applyText: {
     color: COLORS.white,
     fontSize: 16,
     fontWeight: "bold",

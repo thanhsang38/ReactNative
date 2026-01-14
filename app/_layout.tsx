@@ -11,7 +11,7 @@ import { toastConfig } from "../components/CustomToast";
 import { AuthProvider, useAuth } from "../context/AuthContext";
 import { CartProvider } from "../context/CartContext";
 import { OrderProvider } from "../context/OrderContext";
-
+import { useNotificationListener } from "./services/useNotificationListener";
 export default function RootLayout() {
   return (
     <ThemeProvider value={DefaultTheme}>
@@ -30,13 +30,14 @@ export default function RootLayout() {
 }
 
 function RootLayoutContent() {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, isHydrated } = useAuth();
   const [hasSeenIntro, setHasSeenIntro] = React.useState<boolean | null>(null);
   const router = useRouter();
 
   const segments = useSegments();
   const isUserAuthenticated = !!user;
   const shouldShowFab = isUserAuthenticated && segments[0] === "(tabs)";
+  useNotificationListener(user?.id);
 
   React.useEffect(() => {
     const loadIntroState = async () => {
@@ -45,6 +46,7 @@ function RootLayoutContent() {
     };
     loadIntroState();
   }, []);
+
   React.useEffect(() => {
     if (hasSeenIntro === null) return; // chưa load intro
     if (isLoading) return; // chưa load auth
@@ -92,7 +94,7 @@ function RootLayoutContent() {
           name="notifications"
           options={{ presentation: "modal" }}
         />
-
+        <Stack.Screen name="support-chat" options={{ presentation: "modal" }} />
         <Stack.Screen
           name="cart"
           options={{

@@ -29,7 +29,7 @@ import {
 } from "./services/baserowApi";
 
 // --- CẤU HÌNH VÀ HẰNG SỐ ---
-const GEMINI_API_KEY = "AIzaSyB-FzckqkoLrULjAbJUxgEAl3qGmqFcRhU";
+const GEMINI_API_KEY = "AIzaSyAW6GtKjjIU3xzxQiRTcNYsJ6yZDaMIOpo";
 const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 const MAX_RETRIES = 3;
@@ -482,8 +482,7 @@ export function ChatbotScreen() {
   return (
     <KeyboardAvoidingView
       style={styles.fullContainer}
-      behavior={Platform.OS === "ios" ? "padding" : undefined}
-      keyboardVerticalOffset={insets.top + 60}
+      behavior={Platform.OS === "ios" ? "padding" : "padding"}
     >
       <Header
         title="Drink Xann AI"
@@ -685,7 +684,7 @@ const styles = StyleSheet.create({
   },
   chatListContent: {
     paddingVertical: 15,
-    paddingTop: 80, // ✅ FIX: Đã thêm padding top cho Header chung
+    paddingTop: 90, // ✅ FIX: Đã thêm padding top cho Header chung
   },
   messageBubble: {
     maxWidth: "80%",

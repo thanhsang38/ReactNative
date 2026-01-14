@@ -7,7 +7,7 @@ import React, {
   useEffect,
   useState,
 } from "react";
-import { loginUser, UserRow } from "../app/services/baserowApi";
+import { getUserById, loginUser, UserRow } from "../app/services/baserowApi";
 
 // ===========================================
 // Kiểu dữ liệu
@@ -20,6 +20,8 @@ interface AuthContextType {
   signIn: (email: string, password: string) => Promise<User>;
   signOut: () => Promise<void>;
   updateUserContext: (updatedData: Partial<User>) => void;
+  refreshUser: () => Promise<void>;
+  isHydrated: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -47,6 +49,8 @@ const withTimeout = <T,>(promise: Promise<T>, ms: number): Promise<T> => {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
+  const [isHydrated, setIsHydrated] = useState(false);
+
   const [isLoading, setIsLoading] = useState(false);
   const router = useRouter();
 
@@ -67,6 +71,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         console.log("AUTH: Load user error:", error);
       } finally {
         setIsLoading(false); // 🔥 và thêm dòng này
+        setIsHydrated(true);
       }
     };
 
@@ -117,6 +122,25 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
     router.replace("/App");
   };
+  // =====================================================
+  // REFRESH USER TỪ SERVER
+  // =====================================================
+  const refreshUser = async (): Promise<void> => {
+    if (!user?.id) return;
+
+    try {
+      console.log("AUTH: Refreshing user from server...");
+
+      const freshUser = await getUserById(user.id);
+
+      setUser(freshUser);
+      await AsyncStorage.setItem("user", JSON.stringify(freshUser));
+
+      console.log("AUTH: User refreshed");
+    } catch (error) {
+      console.log("AUTH: Refresh user failed:", error);
+    }
+  };
 
   // =====================================================
   // Cập nhật user trong Context
@@ -133,7 +157,15 @@ export function AuthProvider({ children }: { children: ReactNode }) {
 
   return (
     <AuthContext.Provider
-      value={{ user, isLoading, signIn, signOut, updateUserContext }}
+      value={{
+        user,
+        isLoading,
+        signIn,
+        signOut,
+        updateUserContext,
+        refreshUser,
+        isHydrated,
+      }}
     >
       {children}
     </AuthContext.Provider>

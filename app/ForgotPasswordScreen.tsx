@@ -274,12 +274,20 @@ export function ForgotPasswordScreen({
       Toast.show({ type: "success", text1: "Xác thực OTP thành công" });
       setStep(3);
     } catch (e: any) {
-      console.error("OTP VERIFY ERROR:", e);
+      let userMessage = "Mã OTP không hợp lệ";
+
+      if (e.message === "OTP_NOT_FOUND") {
+        userMessage = "Mã OTP không đúng hoặc đã được sử dụng";
+      }
+
+      if (e.message === "OTP_EXPIRED") {
+        userMessage = "Mã OTP đã hết hạn, vui lòng gửi lại mã mới";
+      }
 
       Toast.show({
         type: "error",
-        text1: "Lỗi OTP",
-        text2: e?.message || "UNKNOWN_ERROR",
+        text1: "Xác thực thất bại",
+        text2: userMessage,
       });
 
       setOtpValue("");

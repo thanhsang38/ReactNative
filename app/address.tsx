@@ -339,9 +339,12 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
           {/* Add New Address Button */}
           {!showAddForm && (
             <TouchableOpacity
-              onPress={() => setShowAddForm(true)}
+              onPress={() => {
+                setEditingId(null);
+                reset();
+                setShowAddForm(true);
+              }}
               style={styles.addButton}
-              activeOpacity={0.7}
             >
               <View style={styles.addButtonContent}>
                 <Feather name="plus" size={20} color={COLORS.emerald600} />
@@ -354,7 +357,9 @@ export function AddressPage({ goBack, navigateTo }: AddressPageProps) {
           {showAddForm && (
             <View style={styles.addFormCard}>
               <View style={styles.formHeader}>
-                <Text style={styles.formTitle}>Thêm địa chỉ mới</Text>
+                <Text style={styles.formTitle}>
+                  {editingId ? "Sửa địa chỉ" : "Thêm địa chỉ mới"}
+                </Text>
                 <TouchableOpacity
                   onPress={() => {
                     setShowAddForm(false);
