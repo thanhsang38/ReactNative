@@ -12,7 +12,7 @@ import Toast from "react-native-toast-message";
 // ----------------------------------------------------------------------
 // Types
 // ----------------------------------------------------------------------
-const SHIPPING_FEE = 20000;
+
 export interface CartItem {
   id: string;
   productId: string;
@@ -34,7 +34,14 @@ export interface Voucher {
   minOrder: number;
   maxDiscount?: number;
 }
+const calculateDistanceFee = (distance: number): number => {
+  if (distance <= 0) return 0;
+  if (distance <= 2) return 0; // Freeship dưới 2km
+  if (distance <= 5) return 15000; // 2km - 5km giá 15k
 
+  const extraKm = Math.ceil(distance - 5); // Làm tròn km tiếp theo
+  return 15000 + extraKm * 5000; // Mỗi km thêm 5k
+};
 interface CartContextType {
   items: CartItem[];
   selectedVoucher: Voucher | null;
@@ -50,6 +57,8 @@ interface CartContextType {
   getSubtotal: () => number;
   getDiscountAmount: () => number;
   getTotalPrice: () => number;
+  distance: number;
+  updateDistance: (km: number) => void;
 }
 
 const CartContext = createContext<CartContextType | undefined>(undefined);
@@ -63,6 +72,10 @@ export function CartProvider({ children }: { children: ReactNode }) {
   const [selectedVoucher, setSelectedVoucher] = useState<Voucher | null>(null);
   const { user } = useAuth();
   const userId = user?.id; // hoặc user?.email
+  const [distance, setDistance] = useState<number>(0);
+  const updateDistance = (km: number) => {
+    setDistance(km);
+  };
 
   const showSuccessToast = (message: string) => {
     Toast.show({
@@ -187,16 +200,16 @@ export function CartProvider({ children }: { children: ReactNode }) {
     return items.reduce((total, item) => total + item.price * item.quantity, 0);
   };
   const getShippingFee = () => {
-    if (!selectedVoucher) return SHIPPING_FEE;
+    // Thay vì gán cứng 20k, hãy dùng hàm này
+    let fee = calculateDistanceFee(distance);
 
-    const subtotal = getSubtotal();
-
-    // Nếu có voucher shipping và đủ minOrder, phí ship là 0
-    const isFreeShipping =
-      selectedVoucher.type === "shipping" &&
-      subtotal >= selectedVoucher.minOrder;
-
-    return isFreeShipping ? 0 : SHIPPING_FEE;
+    // Logic voucher giảm giá ship (giữ nguyên của bạn)
+    if (selectedVoucher && selectedVoucher.type === "shipping") {
+      if (getSubtotal() >= selectedVoucher.minOrder) {
+        fee = Math.max(0, fee - selectedVoucher.discount);
+      }
+    }
+    return fee;
   };
 
   const getDiscountAmount = () => {
@@ -259,6 +272,8 @@ export function CartProvider({ children }: { children: ReactNode }) {
         removeFromCart,
         updateQuantity,
         clearCart,
+        distance,
+        updateDistance,
 
         setSelectedVoucher,
         getShippingFee,

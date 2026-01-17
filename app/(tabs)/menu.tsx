@@ -35,6 +35,8 @@ interface FilterOptions {
   priceRange: number[];
   rating: number | null;
   sortBy: "popular" | "price-low" | "price-high" | "rating";
+  isSale: boolean;
+  isHot: boolean;
 }
 const normalizeText = (text: string) =>
   text
@@ -152,6 +154,8 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     priceRange: [0, 1000000],
     rating: null,
     sortBy: "popular",
+    isSale: false,
+    isHot: false,
   });
   const { addToCart } = useCart();
 
@@ -211,56 +215,43 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   };
 
   const processedProducts = useMemo(() => {
-    let filtered = allProducts;
+    let filtered = [...allProducts];
 
-    // 1. Lọc theo DANH MỤC ĐÃ CHỌN
+    // 1. Lọc theo DANH MỤC
     if (selectedCategory !== "all") {
-      filtered = filtered.filter(
-        (product) => product.category === selectedCategory
+      filtered = filtered.filter((p) => p.category === selectedCategory);
+    }
+
+    // 2. Lọc theo TÌM KIẾM (giữ nguyên logic normalize của bạn)
+    if (searchQuery.trim()) {
+      const keyword = normalizeText(searchQuery);
+      filtered = filtered.filter((p) =>
+        normalizeText(p.name).includes(keyword)
       );
     }
 
-    // 2. Lọc theo TÌM KIẾM
-    if (searchQuery.trim()) {
-      const keyword = normalizeText(searchQuery);
-
-      // ✅ bỏ từ rỗng
-      const keywordWords = keyword
-        .split(" ")
-        .map((w) => w.trim())
-        .filter(Boolean);
-
-      filtered = filtered
-        .map((product) => {
-          const productText = normalizeText(
-            `${product.name} ${product.description ?? ""}`
-          );
-
-          let score = 0;
-          keywordWords.forEach((word) => {
-            if (productText.includes(word)) {
-              score += 1;
-            }
-          });
-
-          return { ...product, __score: score };
-        })
-        .filter((p) => p.__score > 0)
-        .sort((a, b) => b.__score - a.__score);
-    }
-
-    // 3. Lọc theo GIÁ & RATING (Tương tự logic FilterModal)
+    // 3. LỌC SÂU (Advanced Filters)
     filtered = filtered.filter((product) => {
       const finalPrice = getFinalPrice(product);
 
-      return (
+      // Lọc theo giá
+      const matchPrice =
         finalPrice >= filters.priceRange[0] &&
-        finalPrice <= filters.priceRange[1]
-      );
+        finalPrice <= filters.priceRange[1];
+
+      // Lọc theo Khuyến mãi (Kiểm tra salePrice có tồn tại không)
+      const matchSale = filters.isSale
+        ? product.salePrice && Number(product.salePrice) > 0
+        : true;
+
+      // Lọc theo Hot (Logic của bạn: giá > 30.000đ)
+      const matchHot = filters.isHot ? Number(product.price) > 30000 : true;
+
+      return matchPrice && matchSale && matchHot;
     });
 
-    // 4. Sắp xếp
-    return [...filtered].sort((a, b) => {
+    // 4. SẮP XẾP
+    return filtered.sort((a, b) => {
       const priceA = getFinalPrice(a);
       const priceB = getFinalPrice(b);
 
@@ -269,6 +260,12 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
           return priceA - priceB;
         case "price-high":
           return priceB - priceA;
+        case "popular":
+          // Nếu bạn có trường 'soldCount' thì dùng, nếu không thì ưu tiên món Hot lên đầu
+          return (
+            (Number(b.price) > 30000 ? 1 : 0) -
+            (Number(a.price) > 30000 ? 1 : 0)
+          );
         default:
           return 0;
       }

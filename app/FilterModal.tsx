@@ -18,6 +18,8 @@ export interface FilterOptions {
   priceRange: number[];
   rating: number | null;
   sortBy: "popular" | "price-low" | "price-high" | "rating";
+  isSale: boolean; // 💡 Mới: Lọc món đang giảm giá
+  isHot: boolean;
 }
 
 interface FilterModalProps {
@@ -62,7 +64,8 @@ export function FilterModal({
   const [maxPrice, setMaxPrice] = useState<string>(
     String(currentFilters.priceRange[1])
   );
-
+  const [tempIsSale, setTempIsSale] = useState(currentFilters.isSale);
+  const [tempIsHot, setTempIsHot] = useState(currentFilters.isHot);
   const [tempSortBy, setTempSortBy] = useState(currentFilters.sortBy);
 
   useEffect(() => {
@@ -101,6 +104,8 @@ export function FilterModal({
       priceRange: [min, max],
       rating: null,
       sortBy: tempSortBy,
+      isSale: tempIsSale,
+      isHot: tempIsHot,
     });
 
     onClose();
@@ -111,6 +116,8 @@ export function FilterModal({
       priceRange: [MIN_PRICE, MAX_PRICE],
       rating: null,
       sortBy: "popular",
+      isSale: false,
+      isHot: false,
     });
     onClose();
   };
@@ -170,7 +177,32 @@ export function FilterModal({
                 </View>
               </View>
             </View>
+            <View style={styles.section}>
+              <Text style={styles.sectionTitle}>Trạng thái sản phẩm</Text>
+              <View style={styles.tagWrapper}>
+                <TouchableOpacity
+                  style={[styles.tagItem, tempIsSale && styles.activeTag]}
+                  onPress={() => setTempIsSale(!tempIsSale)}
+                >
+                  <Text
+                    style={[styles.tagLabel, tempIsSale && styles.activeText]}
+                  >
+                    🏷️ Đang giảm giá
+                  </Text>
+                </TouchableOpacity>
 
+                <TouchableOpacity
+                  style={[styles.tagItem, tempIsHot && styles.activeTag]}
+                  onPress={() => setTempIsHot(!tempIsHot)}
+                >
+                  <Text
+                    style={[styles.tagLabel, tempIsHot && styles.activeText]}
+                  >
+                    🔥 Món bán chạy
+                  </Text>
+                </TouchableOpacity>
+              </View>
+            </View>
             {/* SORT */}
             <View style={styles.section}>
               <Text style={styles.sectionTitle}>Sắp xếp theo</Text>
@@ -337,4 +369,31 @@ const styles = StyleSheet.create({
     fontWeight: "bold",
     zIndex: 1,
   },
+  tagWrapper: {
+    flexDirection: "row",
+    flexWrap: "wrap",
+    gap: 10,
+  },
+  tagItem: {
+    paddingHorizontal: 16,
+    paddingVertical: 10,
+    borderRadius: 20,
+    backgroundColor: "#f1f5f9", // Mặc định là slate-100
+    borderWidth: 1,
+    borderColor: COLORS.slate200,
+  },
+  activeTag: {
+    backgroundColor: COLORS.emerald500, // Đổi màu nền khi được chọn
+    borderColor: COLORS.emerald500,
+  },
+  tagLabel: {
+    fontSize: 14,
+    color: COLORS.slate700,
+    fontWeight: "500",
+  },
+  activeText: {
+    color: COLORS.white, // Đổi màu chữ sang trắng khi được chọn
+  },
+
+  // Style cho modal footer/action bar nếu bạn chưa có GAP
 });

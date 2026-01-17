@@ -46,6 +46,17 @@ function RootLayoutContent() {
     };
     loadIntroState();
   }, []);
+  // React.useEffect(() => {
+  //   const resetIntroForDemo = async () => {
+  //     // ❗ XÓA CỜ INTRO
+  //     await AsyncStorage.removeItem("hasSeenIntro");
+
+  //     // ❗ Ép intro hiển thị lại
+  //     setHasSeenIntro(false);
+  //   };
+
+  //   resetIntroForDemo();
+  // }, []);
 
   React.useEffect(() => {
     if (hasSeenIntro === null) return; // chưa load intro

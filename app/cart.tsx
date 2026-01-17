@@ -1,8 +1,8 @@
 import { LinearGradient } from "expo-linear-gradient";
-import { useRouter } from "expo-router";
+import { useFocusEffect, useRouter } from "expo-router";
 import React from "react";
 import {
-  Dimensions,
+  ActivityIndicator,
   Image,
   ScrollView,
   StyleSheet,
@@ -15,15 +15,16 @@ import { Feather } from "@expo/vector-icons";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 
 // 💡 IMPORTS COMPONENTS & CONTEXTS
+import * as Location from "expo-location";
 import { Header } from "../components/Header"; // Component Header đã sửa
+import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext"; // Context Giỏ hàng
-
+import { getAddresses } from "./services/baserowApi";
+import { getOSRMDistance } from "./services/mapService";
 // --- Giả định Types (Giữ nguyên) ---
 type Page = string; // Để tương thích với navigateTo
 
 // --- Constants ---
-const { width } = Dimensions.get("window");
-const ITEM_HEIGHT = 100;
 
 const COLORS = {
   bg: "#f8fafc", // slate-50
@@ -62,8 +63,11 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
     getShippingFee,
     getDiscountAmount,
     getSubtotal,
+    updateDistance,
+    distance,
   } = useCart();
   const insets = useSafeAreaInsets();
+  const { user } = useAuth();
   const router = useRouter();
   // 💡 Chiều cao Header (cần thiết cho Layout)
   const headerHeight = 50 + insets.top;
@@ -72,7 +76,10 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
   const discountAmount = getDiscountAmount();
   const shippingFee = getShippingFee(); // Lấy phí ship
   const finalTotal = getTotalPrice(); // Tổng cuối cùng sau giảm giá
-
+  const [isShipLoading, setIsShipLoading] = React.useState(false);
+  const [currentAddressId, setCurrentAddressId] = React.useState<number | null>(
+    null
+  );
   // Kiểm tra Free Shipping (để hiển thị)
   const isFreeShipping = shippingFee === 0;
   const isVoucherValid = React.useMemo(() => {
@@ -85,6 +92,7 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
 
     return true;
   }, [selectedVoucher, subtotal]);
+
   const voucherErrorMessage = React.useMemo(() => {
     if (!selectedVoucher) return "";
 
@@ -96,6 +104,49 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
 
     return "";
   }, [selectedVoucher, subtotal]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      const updateShippingByAddress = async () => {
+        if (!user?.id) return;
+
+        setIsShipLoading(true); // Luôn hiện loading để báo hiệu đang kiểm tra phí ship
+        try {
+          const result = await getAddresses(user.id);
+          if (result.success && result.data && result.data.length > 0) {
+            // Luôn lấy địa chỉ mặc định mới nhất trong Database
+            const defaultAddr =
+              result.data.find((a) => a.is_default) || result.data[0];
+
+            if (defaultAddr) {
+              // Chuyển địa chỉ chữ sang tọa độ
+              const geo = await Location.geocodeAsync(defaultAddr.address);
+              if (geo && geo.length > 0) {
+                const km = await getOSRMDistance(
+                  geo[0].latitude,
+                  geo[0].longitude
+                );
+
+                // Cập nhật lại số km chuẩn của địa chỉ mặc định vào Context
+                updateDistance(km);
+                setCurrentAddressId(defaultAddr.id);
+              }
+            }
+          }
+        } catch (error) {
+          console.error("Lỗi cập nhật phí ship:", error);
+        } finally {
+          setIsShipLoading(false);
+        }
+      };
+
+      updateShippingByAddress();
+
+      // 💡 Quan trọng: Cleanup function để reset trạng thái nếu cần
+      return () => {};
+    }, [user?.id]) // Bỏ currentAddressId khỏi dependency để nó luôn chạy khi focus
+  );
+
   const handleCheckout = () => {
     if (items.length > 0) router.push("/checkout");
   };
@@ -289,18 +340,38 @@ export function CartPage({ navigateTo, goBack }: CartPageProps) {
                 </View>
               )}
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Phí giao hàng</Text>
+                <View>
+                  <Text style={styles.summaryLabel}>Phí giao hàng</Text>
+                  {isShipLoading ? (
+                    <Text style={{ fontSize: 11, color: COLORS.emerald600 }}>
+                      Đang tính toán...
+                    </Text>
+                  ) : distance > 0 ? (
+                    <Text style={{ fontSize: 11, color: COLORS.slate500 }}>
+                      (Khoảng cách: {distance.toFixed(1)}km)
+                    </Text>
+                  ) : (
+                    <Text style={{ fontSize: 11, color: COLORS.red500 }}>
+                      (Chưa chọn địa chỉ)
+                    </Text>
+                  )}
+                </View>
 
-                <Text
-                  style={
-                    isFreeShipping ? styles.summaryFree : styles.summaryLabel
-                  }
-                >
-                  {isFreeShipping
-                    ? "Miễn phí"
-                    : shippingFee.toLocaleString("vi-VN") + "đ"}
-                  {/* ✅ FIX: Hiển thị phí ship */}
-                </Text>
+                {isShipLoading ? (
+                  <ActivityIndicator size="small" color={COLORS.emerald600} />
+                ) : (
+                  <Text
+                    style={
+                      isFreeShipping ? styles.summaryFree : styles.summaryLabel
+                    }
+                  >
+                    {distance > 0
+                      ? isFreeShipping
+                        ? "Miễn phí"
+                        : `${shippingFee.toLocaleString("vi-VN")}đ`
+                      : "---"}
+                  </Text>
+                )}
               </View>
               <View style={styles.summaryTotalWrapper}>
                 <View style={styles.summaryRow}>

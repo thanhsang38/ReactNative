@@ -110,6 +110,7 @@ export default function CustomerChatScreen() {
       push(ref(realtimeDb, `chats/${user.id}`), {
         text: message.text,
         createdAt: serverTimestamp(),
+        seen: false,
         user: {
           _id: user.id,
           name: user.name || "Khách hàng",

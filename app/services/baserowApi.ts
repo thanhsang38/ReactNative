@@ -698,7 +698,8 @@ export const createOrder = async (
       .replace(/[-:T.]/g, "")
       .slice(0, 14)}-${userId}`,
     notes: orderData.note || null,
-    status: "pending",
+    status:
+      orderData.paymentMethod === "banking" ? "awaiting_payment" : "pending",
     amount: orderData.total,
     method: orderData.paymentMethod,
     address: [orderData.deliveryAddressId],
@@ -757,6 +758,7 @@ export const createOrder = async (
     };
   }
 };
+
 export const getOrders = async (
   userId: number
 ): Promise<{ success: boolean; data?: OrderRow[]; message?: string }> => {
@@ -864,6 +866,42 @@ export const fetchOrdersWithDetails = async (
   } catch (e) {
     console.error("Lỗi fetchOrdersWithDetails:", e);
     return [];
+  }
+};
+export const updatePaymentMethodToCash = async (orderId: number) => {
+  const endpoint = `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`;
+
+  // Payload cập nhật
+  const payload = {
+    method: "cash", // Chuyển sang Tiền mặt
+    status: "pending", // Chuyển về Chờ xác nhận (vì không cần check Webhook nữa)
+  };
+
+  try {
+    console.log(
+      `🚀 [UPDATE PAYMENT] Đang chuyển đơn hàng #${orderId} sang Tiền mặt...`
+    );
+
+    const response: OrderRow = await axiosClient.patch(endpoint, payload);
+
+    console.log("✅ [UPDATE PAYMENT SUCCESS]", response);
+
+    return {
+      success: true,
+      data: response,
+    };
+  } catch (error: any) {
+    console.error("❌ [UPDATE PAYMENT ERROR]", error.response?.data || error);
+
+    let message = "Không thể cập nhật phương thức thanh toán.";
+    if (error.response?.data?.error === "ERROR_ROW_DOES_NOT_EXIST") {
+      message = "Đơn hàng không tồn tại.";
+    }
+
+    return {
+      success: false,
+      message: message,
+    };
   }
 };
 export const getOrderById = async (

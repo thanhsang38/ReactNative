@@ -1,5 +1,6 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
+import * as Location from "expo-location";
 import { useLocalSearchParams, useRouter } from "expo-router";
 import React, { ComponentProps } from "react";
 import {
@@ -13,6 +14,7 @@ import {
 } from "react-native";
 import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
+import { getOSRMDistance } from "./services/mapService";
 // 💡 IMPORTS COMPONENTS & CONTEXTS
 import { Header } from "../components/Header";
 import { useAuth } from "../context/AuthContext";
@@ -20,8 +22,7 @@ import { CartItem, useCart } from "../context/CartContext";
 import { useOrders } from "../context/OrderContext";
 import { getOrderById } from "./services/baserowApi";
 // --- Types & Config ---
-type Page = string;
-const SHIPPING_FEE_DEFAULT = 20000;
+
 type FeatherIconName = ComponentProps<typeof Feather>["name"];
 type OrderStatus =
   | "pending"
@@ -29,7 +30,8 @@ type OrderStatus =
   | "preparing"
   | "delivering"
   | "completed"
-  | "cancelled";
+  | "cancelled"
+  | "awaiting_payment";
 
 const COLORS = {
   bg: "#f8fafc",
@@ -57,6 +59,8 @@ const COLORS = {
   red600: "#dc2626",
   red500: "#ef4444",
   red50: "#fef2f2",
+  pink: "#ec4899",
+  pink50: "#fdf2f8",
 };
 
 // Map Lucide icons sang Feather icons
@@ -104,6 +108,12 @@ const STATUS_CONFIG: {
     bg: COLORS.red50,
     icon: "x-circle",
   },
+  awaiting_payment: {
+    label: "Chờ thanh toán",
+    color: COLORS.pink,
+    bg: COLORS.pink50,
+    icon: "credit-card",
+  },
 };
 
 const PAYMENT_METHODS: { [key: string]: string } = {
@@ -133,6 +143,9 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
   const [order, setOrder] = React.useState<any>(null);
   const [loading, setLoading] = React.useState(true);
 
+  const [calculatedShipFee, setCalculatedShipFee] = React.useState<number>(0);
+  const [orderDistance, setOrderDistance] = React.useState<number>(0);
+
   React.useEffect(() => {
     const loadOrder = async () => {
       try {
@@ -158,6 +171,43 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
     }
   }, [orderId]);
 
+  React.useEffect(() => {
+    const getFeeFromOrderAddress = async () => {
+      // Nếu đơn hàng đã load xong và có địa chỉ
+      if (order && order.address?.value) {
+        try {
+          // A. Biến địa chỉ chữ của đơn hàng thành tọa độ
+          const geo = await Location.geocodeAsync(order.address.value);
+
+          if (geo.length > 0) {
+            // B. Tính khoảng cách OSRM
+            const km = await getOSRMDistance(geo[0].latitude, geo[0].longitude);
+            setOrderDistance(km);
+
+            // C. Dùng đúng logic bậc thang để tính ra tiền
+            // Bạn có thể copy hàm calculateDistanceFee vào đây hoặc import nó
+            let fee = 0;
+            if (km <= 2) fee = 0;
+            else if (km <= 5) fee = 15000;
+            else fee = 15000 + Math.ceil(km - 5) * 5000;
+
+            // D. Kiểm tra nếu đơn hàng này có dùng voucher freeship (dựa trên tên voucher chẳng hạn)
+            if (order.voucher?.name?.toLowerCase().includes("ship")) {
+              fee = 0;
+            }
+
+            setCalculatedShipFee(fee);
+          }
+        } catch (error) {
+          console.error("Lỗi tính lại phí ship cho đơn cũ:", error);
+        }
+      }
+    };
+
+    if (!loading && order) {
+      getFeeFromOrderAddress();
+    }
+  }, [order, loading]);
   if (loading) {
     return (
       <View style={styles.fullContainer}>
@@ -269,12 +319,15 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
   const hasShippingVoucher = order.voucher?.name
     ?.toLowerCase()
     .includes("ship");
-  const shippingFeeCharged = hasShippingVoucher ? 0 : SHIPPING_FEE_DEFAULT;
-  const discountAmount = Math.max(
-    0,
-    subtotal - (finalAmount - shippingFeeCharged)
-  );
+
+  const expectedTotal = subtotal + calculatedShipFee;
+  const discountAmount = Math.max(0, expectedTotal - finalAmount);
   const finalTotal = finalAmount; // Tổng cuối cùng đã tính toán
+  const isPaid =
+    ["pending", "confirmed", "preparing", "delivering", "completed"].includes(
+      statusValue,
+    ) && order.method !== "cash";
+  const amountToCollect = isPaid ? 0 : finalTotal;
   const handleCancelOrder = () => {
     Alert.alert("Xác nhận Hủy", "Bạn có chắc muốn hủy đơn hàng này?", [
       { text: "Không", style: "cancel" },
@@ -284,7 +337,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
         onPress: async () => {
           try {
             await cancelOrder(order.id); // ⬅️ CHỜ API + CONTEXT UPDATE
-            router.back(); // ⬅️ QUAY LẠI SAU KHI XONG
+            router.replace("/(tabs)/orders");
           } catch (e) {
             Toast.show({
               type: "error",
@@ -303,14 +356,16 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
       params: { orderId: order.id },
     } as any);
   };
-
+  const handleBackNavigation = () => {
+    router.replace("/(tabs)/orders");
+  };
   return (
     <View style={styles.fullContainer}>
       {/* 1. Header */}
       <Header
         title={`Đơn hàng ${order.name}`}
         showBack={true}
-        onBack={goBack}
+        onBack={handleBackNavigation}
       />
 
       <ScrollView
@@ -328,9 +383,23 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                 <Text style={[styles.statusTitle, { color: statusInfo.color }]}>
                   {statusInfo.label}
                 </Text>
+                {isPaid && (
+                  <View style={styles.paidBadge}>
+                    <Feather
+                      name="check-circle"
+                      size={12}
+                      color={COLORS.emerald600}
+                    />
+                    <Text style={styles.paidBadgeText}>
+                      Đã thanh toán trực tuyến
+                    </Text>
+                  </View>
+                )}
               </View>
               <Text style={styles.statusEmoji}>
-                {statusValue === "pending" && "⏳"}
+                {statusValue === "awaiting_payment"
+                  ? "💳"
+                  : statusValue === "pending" && "⏳"}
                 {statusValue === "confirmed" && "✅"}
                 {statusValue === "preparing" && "👨‍🍳"}
                 {statusValue === "delivering" && "🚚"}
@@ -435,7 +504,7 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
                   color={COLORS.emerald600}
                   style={styles.infoIcon}
                 />
-                <View>
+                <View style={styles.infoTextWrapper}>
                   <Text style={styles.infoLabel}>Địa chỉ</Text>
                   <Text style={styles.infoValue}>
                     {order.address?.value || "Đang cập nhật"}
@@ -540,19 +609,24 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
               </View>
 
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
-
+                <View>
+                  <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
+                  {orderDistance > 0 && (
+                    <Text style={{ fontSize: 11, color: COLORS.slate500 }}>
+                      ({orderDistance.toFixed(1)} km)
+                    </Text>
+                  )}
+                </View>
                 <Text
                   style={
-                    shippingFeeCharged === 0
+                    calculatedShipFee === 0
                       ? styles.summaryValueFree
                       : styles.summaryValue
                   }
                 >
-                  {shippingFeeCharged === 0
+                  {calculatedShipFee === 0
                     ? "Miễn phí"
-                    : shippingFeeCharged.toLocaleString("vi-VN") + "đ"}
-                  {/* ✅ PHÍ VẬN CHUYỂN */}
+                    : `${calculatedShipFee.toLocaleString("vi-VN")}đ`}
                 </Text>
               </View>
 
@@ -567,10 +641,18 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
               )}
               <View style={styles.summaryDivider} />
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryTotalLabel}>Tổng thanh toán</Text>
-                <Text style={styles.summaryTotalPrice}>
-                  {finalTotal.toLocaleString("vi-VN")}đ
-                </Text>
+                <Text style={styles.summaryTotalLabel}>Cần thanh toán</Text>
+                <View style={{ alignItems: "flex-end" }}>
+                  <Text style={styles.summaryTotalPrice}>
+                    {amountToCollect.toLocaleString("vi-VN")}đ
+                  </Text>
+                  {/* NẾU ĐÃ TRẢ TRƯỚC THÌ HIỆN DÒNG CHÚ THÍCH */}
+                  {isPaid && (
+                    <Text style={styles.alreadyPaidText}>
+                      (Đã thanh toán {finalTotal.toLocaleString("vi-VN")}đ)
+                    </Text>
+                  )}
+                </View>
               </View>
             </View>
             <View style={styles.summaryFooter}>
@@ -585,33 +667,49 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
         </View>
 
         {/* Padding cho Bottom Actions */}
-        <View style={{ height: 100 }} />
+        <View style={{ height: 150 }} />
       </ScrollView>
 
-      {/* Bottom Actions */}
-      {["pending", "confirmed"].includes(statusValue) && (
-        <View
-          style={[
-            styles.bottomActionsContainer,
-            { paddingBottom: insets.bottom || 16 },
-          ]}
-        >
+      {/* 💡 Cập nhật toàn bộ phần Bottom Actions */}
+      <View
+        style={[
+          styles.bottomActionsContainer,
+          { paddingBottom: insets.bottom || 16 },
+        ]}
+      >
+        {/* Nút THANH TOÁN NGAY (Chỉ hiện khi chờ thanh toán) */}
+        {statusValue === "awaiting_payment" && (
+          <TouchableOpacity
+            style={[styles.repurchaseButton, { marginBottom: 12 }]}
+            onPress={() => {
+              router.push({
+                pathname: "/payment-qr",
+                params: { orderId: order.id, total: finalTotal },
+              });
+            }}
+          >
+            <LinearGradient
+              colors={[COLORS.emerald600, COLORS.teal600]}
+              start={{ x: 0, y: 0 }}
+              end={{ x: 1, y: 0 }}
+              style={StyleSheet.absoluteFill}
+            />
+            <Text style={styles.repurchaseButtonText}>Thanh toán ngay</Text>
+          </TouchableOpacity>
+        )}
+
+        {/* Nút HỦY ĐƠN HÀNG (Hiện khi pending, confirmed, hoặc awaiting_payment) */}
+        {["pending", "confirmed", "awaiting_payment"].includes(statusValue) && (
           <TouchableOpacity
             onPress={handleCancelOrder}
             style={styles.cancelButton}
           >
             <Text style={styles.cancelButtonText}>Hủy đơn hàng</Text>
           </TouchableOpacity>
-        </View>
-      )}
+        )}
 
-      {statusValue === "completed" && (
-        <View
-          style={[
-            styles.bottomActionsContainer,
-            { paddingBottom: insets.bottom || 16 },
-          ]}
-        >
+        {/* Nhóm nút HOÀN THÀNH (Đánh giá & Mua lại) */}
+        {statusValue === "completed" && (
           <View style={styles.completedActions}>
             <TouchableOpacity
               style={styles.reviewButton}
@@ -632,8 +730,8 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
               <Text style={styles.repurchaseButtonText}>Mua lại</Text>
             </TouchableOpacity>
           </View>
-        </View>
-      )}
+        )}
+      </View>
     </View>
   );
 }
@@ -940,5 +1038,29 @@ const styles = StyleSheet.create({
     justifyContent: "center",
     alignItems: "center",
     backgroundColor: COLORS.bg,
+  },
+  paidBadge: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.emerald50,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    marginTop: 6,
+    gap: 4,
+    alignSelf: "flex-start",
+  },
+  paidBadgeText: {
+    color: COLORS.emerald600,
+    fontSize: 11,
+    fontWeight: "600",
+  },
+  alreadyPaidText: {
+    color: COLORS.slate500,
+    fontSize: 12,
+    textDecorationLine: "line-through",
+  },
+  infoTextWrapper: {
+    flex: 1, // Quan trọng: Cho phép view co giãn để text xuống dòng
   },
 });

@@ -24,14 +24,15 @@ import {
 } from "../../context/OrderContext";
 
 // --- Constants và Types ---
-type Page = string;
 type OrderStatus =
   | "pending"
   | "confirmed"
   | "preparing"
   | "delivering"
   | "completed"
-  | "cancelled";
+  | "cancelled"
+  | "awaiting_payment";
+
 type FeatherIconName =
   | "clock"
   | "check-circle"
@@ -65,6 +66,8 @@ const COLORS = {
   green50: "#f0fff4",
   red600: "#dc2626",
   red50: "#fef2f2",
+  pink: "#ec4899",
+  pink50: "#fdf2f8",
 };
 
 // Map Lucide icons sang Feather/Ionicons
@@ -112,6 +115,12 @@ const STATUS_CONFIG: {
     bg: COLORS.red50,
     icon: "x-circle",
   }, // XCircle -> Feather
+  awaiting_payment: {
+    label: "Chờ thanh toán",
+    color: COLORS.pink,
+    bg: COLORS.pink50,
+    icon: "file-text",
+  }, // FileText -> Feather
 };
 
 export function OrdersPage() {
@@ -137,6 +146,7 @@ export function OrdersPage() {
     delivering: "Đang giao",
     completed: "Hoàn thành",
     cancelled: "Đã hủy",
+    awaiting_payment: "Chờ thanh toán",
   };
 
   const loadOrders = async () => {
@@ -221,7 +231,10 @@ export function OrdersPage() {
   const renderOrderItem = ({ item: order }: { item: Order }) => {
     const statusInfo = STATUS_CONFIG[order.status];
     const StatusIcon = Feather; // Sử dụng Feather
-
+    const isPaid =
+      ["pending", "confirmed", "preparing", "delivering", "completed"].includes(
+        String(order.status)
+      ) && order.paymentMethod !== "cash";
     return (
       <TouchableOpacity
         key={order.id}
@@ -247,7 +260,14 @@ export function OrdersPage() {
             </View>
           </View>
         </View>
-
+        {isPaid && (
+          <View style={styles.paidRow}>
+            <View style={styles.paidMiniTag}>
+              <Feather name="check" size={10} color={COLORS.emerald600} />
+              <Text style={styles.paidMiniText}>Đã thanh toán trực tuyến</Text>
+            </View>
+          </View>
+        )}
         {/* Order Items Preview */}
         <View style={styles.itemsPreview}>
           {order.items.slice(0, 2).map((item, index) => (
@@ -274,10 +294,26 @@ export function OrdersPage() {
         </View>
         {/* Order Footer */}
         <View style={styles.orderFooter}>
-          <Text style={styles.totalLabel}>Tổng cộng:</Text>
-          <Text style={styles.totalPrice}>
-            {Number(order.total).toLocaleString("vi-VN")}đ
+          <Text style={styles.totalLabel}>
+            {isPaid ? "Đã trả trước:" : "Tổng cộng:"}
           </Text>
+          <View style={{ alignItems: "flex-end" }}>
+            <Text
+              style={[
+                styles.totalPrice,
+                isPaid && {
+                  color: COLORS.slate500,
+                  textDecorationLine: "line-through",
+                  fontSize: 13,
+                },
+              ]}
+            >
+              {Number(order.total).toLocaleString("vi-VN")}đ
+            </Text>
+            {isPaid && (
+              <Text style={styles.collectAmountText}>Cần thu: 0đ</Text>
+            )}
+          </View>
         </View>
       </TouchableOpacity>
     );
@@ -493,7 +529,8 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     justifyContent: "space-between",
     alignItems: "center",
-    marginBottom: 12,
+    marginBottom: 8, // Giảm margin lại tí vì có hàng paidRow ở dưới
+    gap: 10,
   },
   orderStatusWrapper: {
     flexDirection: "row",
@@ -503,6 +540,7 @@ const styles = StyleSheet.create({
   orderIdText: {
     color: COLORS.slate800,
     fontWeight: "bold",
+    flex: 1,
   },
   statusTag: {
     flexDirection: "row",
@@ -599,5 +637,31 @@ const styles = StyleSheet.create({
     marginTop: 10,
     fontSize: 16,
     color: "#333",
+  },
+  paidMiniTag: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.emerald50,
+    paddingHorizontal: 8,
+    paddingVertical: 4,
+    borderRadius: 6,
+    gap: 4,
+    borderWidth: 0.5,
+    borderColor: COLORS.emerald600 + "20",
+  },
+  paidMiniText: {
+    color: COLORS.emerald600,
+    fontSize: 10,
+    fontWeight: "bold",
+    textTransform: "uppercase",
+  },
+  collectAmountText: {
+    color: COLORS.emerald600,
+    fontSize: 16,
+    fontWeight: "bold",
+  },
+  paidRow: {
+    flexDirection: "row",
+    marginBottom: 12, // Tạo khoảng cách với phần preview sản phẩm
   },
 });

@@ -3,7 +3,7 @@ import { realtimeDb } from "../config/firebase";
 
 export const listenOrderUpdates = (
   userId: number,
-  onUpdate: (data: any) => void
+  onUpdate: (data: any) => void,
 ) => {
   const updatesRef = ref(realtimeDb, `order_updates/${userId}`);
 

@@ -74,6 +74,8 @@ export function ForgotPasswordScreen({
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [isVerifying, setIsVerifying] = useState(false);
+  const [otpExpireAt, setOtpExpireAt] = useState<string | null>(null);
+  const [otpTimeLeft, setOtpTimeLeft] = useState(0); // giây
 
   const emailForm = useForm<EmailFormData>({
     // ✅ FIX: Xác thực email khi người dùng rời khỏi input
@@ -130,7 +132,10 @@ export function ForgotPasswordScreen({
       // 2️⃣ Tạo mã OTP và thời hạn
       const otp = generateOTP();
       const expiredAt = getExpireISO();
-
+      setOtpExpireAt(expiredAt);
+      setOtpTimeLeft(
+        Math.floor((new Date(expiredAt).getTime() - Date.now()) / 1000)
+      );
       // 3️⃣ GỬI EMAIL QUA REST API
       // (Cách này an toàn nhất cho Android Expo Go để tránh lỗi 403)
       const emailRes = await fetch(
@@ -203,6 +208,24 @@ export function ForgotPasswordScreen({
       );
     }
   };
+  useEffect(() => {
+    if (!otpExpireAt) return;
+
+    const interval = setInterval(() => {
+      const diff = Math.floor(
+        (new Date(otpExpireAt).getTime() - Date.now()) / 1000
+      );
+
+      if (diff <= 0) {
+        setOtpTimeLeft(0);
+        clearInterval(interval);
+      } else {
+        setOtpTimeLeft(diff);
+      }
+    }, 1000);
+
+    return () => clearInterval(interval);
+  }, [otpExpireAt]);
 
   // ✅ Thay thế handleOtpChange cũ bằng hàm mới cho input đơn
   const handleOtpInput = (text: string) => {
@@ -498,6 +521,17 @@ export function ForgotPasswordScreen({
         />
       </View>
       {/* KẾT THÚC THAY THẾ */}
+      {otpTimeLeft > 0 ? (
+        <Text style={styles.otpExpireText}>
+          ⏳ OTP còn hiệu lực:{" "}
+          <Text style={styles.otpExpireTime}>
+            {Math.floor(otpTimeLeft / 60)}:
+            {(otpTimeLeft % 60).toString().padStart(2, "0")}
+          </Text>
+        </Text>
+      ) : (
+        <Text style={styles.otpExpiredText}>⛔ Mã OTP đã hết hạn</Text>
+      )}
 
       <View style={styles.resendContainer}>
         {isVerifying ? (
@@ -996,6 +1030,25 @@ const styles = StyleSheet.create({
   backStepButtonText: {
     fontSize: 14,
     color: COLORS.slate600,
+    textAlign: "center",
+  },
+  otpExpireText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: COLORS.slate600,
+    textAlign: "center",
+  },
+
+  otpExpireTime: {
+    color: COLORS.primary,
+    fontWeight: "bold",
+  },
+
+  otpExpiredText: {
+    marginTop: 8,
+    fontSize: 14,
+    color: COLORS.error,
+    fontWeight: "bold",
     textAlign: "center",
   },
 });

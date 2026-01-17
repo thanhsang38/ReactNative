@@ -8,6 +8,7 @@ import {
   Image,
   KeyboardAvoidingView,
   Platform,
+  ScrollView,
   StyleSheet,
   Text,
   TextInput,
@@ -21,15 +22,15 @@ import Toast from "react-native-toast-message";
 import { Header } from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext"; // ✅ IMPORT CART CONTEXT
+import { fetchOrdersWithDetails } from "../context/OrderContext";
 import {
   CategoryRow,
   getCategories,
   getProducts,
   ProductRow,
 } from "./services/baserowApi";
-
 // --- CẤU HÌNH VÀ HẰNG SỐ ---
-const GEMINI_API_KEY = "AIzaSyAW6GtKjjIU3xzxQiRTcNYsJ6yZDaMIOpo";
+const GEMINI_API_KEY = "AIzaSyAx9uzHBiIvHyo1upz0Ad0bwAHhtaBqpKg";
 const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 const MAX_RETRIES = 3;
@@ -52,12 +53,17 @@ type SuggestionItem = {
   image_url: string;
   salePrice?: number;
 };
-
+interface ChatAction {
+  type: "navigate";
+  screen: string;
+  label: string;
+}
 interface Message {
   id: string;
   text: string;
   sender: "user" | "bot";
   suggestions?: SuggestionItem[];
+  action?: ChatAction;
 }
 // --- USER INTENT (PHÂN TÍCH Ý ĐỊNH KHÁCH) ---
 
@@ -74,11 +80,34 @@ const COLORS = {
   userBg: "#d1fae5",
   red500: "#ef4444",
 };
-
+const QUICK_QUESTIONS = [
+  {
+    id: 1,
+    text: "Món nào đang Hot? 🔥",
+    query: "Gợi ý cho tôi các món đang Hot hoặc bán chạy nhất",
+  },
+  {
+    id: 2,
+    text: "Đang có giảm giá gì? 🏷️",
+    query: "Liệt kê các sản phẩm đang có giá salePrice tốt nhất",
+  },
+  {
+    id: 3,
+    text: "Cà phê đậm vị ☕",
+    query: "Tôi muốn tìm các món cà phê đậm đà",
+  },
+  {
+    id: 4,
+    text: "Trà trái cây giải nhiệt 🍎",
+    query: "Tìm cho tôi các món trà trái cây thanh mát",
+  },
+];
 // --- HÀM TẠO GROUNDING DATA (Bối cảnh cho Gemini) ---
 const createGroundingData = (
   products: ProductRow[],
-  categories: CategoryRow[]
+  categories: CategoryRow[],
+  user: any, // 💡 Thêm thông tin User
+  recentOrders: any[],
 ) => {
   let productList = "DANH SÁCH SẢN PHẨM HIỆN TẠI (Gồm giá gốc và giá giảm):\n";
   products.slice(0, 50).forEach((p) => {
@@ -96,7 +125,42 @@ const createGroundingData = (
     }
   }); // ✅ SỬ DỤNG CÚ PHÁP JSON DỰA TRÊN CẤU TRÚC DỮ LIỆU ĐỂ YÊU CẦU MÔN ĐỀ XUẤT SẢN PHẨM
 
+  let userAddressText = "Chưa thiết lập";
+  if (user?.address) {
+    userAddressText =
+      typeof user.address === "object"
+        ? user.address.address || JSON.stringify(user.address)
+        : String(user.address);
+  }
+
+  let userInfo = `THÔNG TIN KHÁCH HÀNG:
+  - Tên: ${user?.name || "Khách"}
+  - Số điện thoại: ${user?.phone || "Chưa có"}
+  - Địa chỉ mặc định: ${userAddressText}\n`;
+
+  let historyInfo = "\nLỊCH SỬ ĐƠN HÀNG (Món khách đã mua): \n";
+  if (recentOrders && recentOrders.length > 0) {
+    recentOrders.slice(0, 3).forEach((order) => {
+      // Trích xuất tên món từ orderDetail
+      const productNames =
+        order.orderDetail && Array.isArray(order.orderDetail)
+          ? order.orderDetail.map((d: any) => d.name).join(", ")
+          : "Không rõ tên món";
+
+      historyInfo += `- Đơn ${
+        order.name || order.id
+      }: Món đã mua [${productNames}]\n`;
+    });
+  } else {
+    historyInfo += "- Khách hàng chưa có đơn hàng nào trước đây.\n";
+  }
   const systemInstruction = `Bạn là Chatbot tư vấn thân thiện của cửa hàng Drink Xann. Nhiệm vụ của bạn là trả lời các câu hỏi liên quan đến thực đơn và cửa hàng dựa trên dữ liệu sau.
+    Hãy dùng thông tin khách hàng để cá nhân hóa cuộc trò chuyện.
+    - Nếu khách có địa chỉ, hãy tư vấn ship.
+    - Nếu khách từng mua món nào đó, hãy hỏi thăm món đó.
+    - Luôn dùng tên khách (${user?.name}) trong câu trả lời để tạo sự thân thiện.
+    ${userInfo}
+    ${historyInfo}
 
     Luôn giữ giọng điệu tích cực, chào hỏi thân thiện. KHÔNG trả lời các câu hỏi không liên quan đến sản phẩm/danh mục/cửa hàng.
     
@@ -114,6 +178,23 @@ const createGroundingData = (
     DỮ LIỆU CỬA HÀNG:
     ${productList}
     ${categoryList}
+    DỮ LIỆU NGỮ CẢNH:
+    ${userInfo}
+    ${historyInfo}
+    ...
+    KHI KHÁCH MUỐN THỰC HIỆN HÀNH ĐỘNG: Ngoài văn bản, hãy trả về thêm trường "action".
+    Các trang hỗ trợ (screen):
+    - "/address": Khi khách muốn đổi/thêm địa chỉ, hỏi phí ship.
+    - "/cart": Khi khách muốn xem giỏ hàng hoặc thanh toán.
+    - "/(tabs)/orders": Khi khách muốn xem lịch sử đơn hàng hoặc kiểm tra trạng thái.
+    - "/vouchers": Khi khách muốn tìm mã giảm giá.
+
+    CẤU TRÚC JSON MỚI:
+    {
+      "text": "Thông báo cho khách",
+      "suggestions": [...],
+      "action": { "type": "navigate", "screen": "/address", "label": "📍 Cài đặt địa chỉ" }
+    }
     `;
 
   return systemInstruction;
@@ -124,8 +205,12 @@ const createGroundingData = (
 const callGeminiApi = async (
   userQuery: string,
   history: Message[],
-  systemInstruction: string
-): Promise<{ text: string; suggestions?: SuggestionItem[] }> => {
+  systemInstruction: string,
+): Promise<{
+  text: string;
+  suggestions?: SuggestionItem[];
+  action?: ChatAction;
+}> => {
   const chatHistory = history.map((msg) => ({
     role: msg.sender === "user" ? "user" : "model",
     parts: [{ text: msg.text }],
@@ -157,7 +242,11 @@ const callGeminiApi = async (
       const jsonMatch = rawTextResponse.match(/\{[\s\S]*\}/);
       const jsonString = jsonMatch ? jsonMatch[0] : rawTextResponse;
 
-      let parsedData: { text: string; suggestions?: SuggestionItem[] };
+      let parsedData: {
+        text: string;
+        suggestions?: SuggestionItem[];
+        action?: ChatAction;
+      };
 
       try {
         // Lỗi nếu chuỗi không phải JSON (ví dụ: Gemini trả lời văn bản thuần túy)
@@ -170,6 +259,7 @@ const callGeminiApi = async (
       return {
         text: parsedData.text || rawTextResponse,
         suggestions: parsedData.suggestions,
+        action: parsedData.action,
       };
     } catch (error: any) {
       retryCount++;
@@ -178,7 +268,7 @@ const callGeminiApi = async (
           "GEMINI ERROR: Max retries reached.",
           error.message,
           "Raw:",
-          rawTextResponse
+          rawTextResponse,
         );
         throw new Error("Lỗi kết nối tới AI. Vui lòng thử lại sau.");
       }
@@ -301,42 +391,100 @@ export function ChatbotScreen() {
   const [products, setProducts] = useState<ProductRow[]>([]);
   const [categories, setCategories] = useState<CategoryRow[]>([]);
   const [systemInstruction, setSystemInstruction] = useState("");
-
+  const [userOrders, setUserOrders] = useState<any[]>([]);
   const flatListRef = useRef<FlatList>(null); // 1. TẢI DỮ LIỆU SẢN PHẨM VÀ TẠO SYSTEM INSTRUCTION
 
   useEffect(() => {
-    const loadGroundingData = async () => {
+    const loadAllData = async () => {
       try {
-        const productResult = await getProducts();
-        const categoryResult = await getCategories();
+        // 1. Load sản phẩm & danh mục
+        const [productResult, categoryResult] = await Promise.all([
+          getProducts(),
+          getCategories(),
+        ]);
 
-        let loadedProducts: ProductRow[] = [];
-        if (productResult.success && productResult.data) {
-          loadedProducts = productResult.data;
-          setProducts(loadedProducts);
+        // 2. Load đơn hàng của user
+        let orders: any[] = [];
+        if (user?.id) {
+          orders = await fetchOrdersWithDetails(user.id);
+          orders = [...orders].sort((a, b) => Number(b.id) - Number(a.id));
         }
 
-        if (categoryResult.success && categoryResult.data) {
-          setCategories(categoryResult.data);
-        } // Tạo hướng dẫn hệ thống
+        const loadedProducts = productResult.data || [];
+        const loadedCategories = categoryResult.data || [];
 
+        setProducts(loadedProducts);
+        setCategories(loadedCategories);
+        setUserOrders(orders);
+
+        // 3. TẠO INSTRUCTION KHI ĐÃ CÓ ĐỦ DỮ LIỆU
         const instruction = createGroundingData(
           loadedProducts,
-          categoryResult.data || []
+          loadedCategories,
+          user,
+          orders, // Truyền mảng orders vừa fetch xong vào đây
         );
         setSystemInstruction(instruction);
       } catch (e) {
-        console.error("Lỗi tải dữ liệu grounding:", e);
-        Toast.show({
-          type: "error",
-          text1: "Lỗi Chatbot",
-          text2: "Không tải được dữ liệu sản phẩm nền.",
-          visibilityTime: 3000,
-        });
+        console.error("Lỗi tải dữ liệu chatbot:", e);
       }
     };
-    loadGroundingData();
-  }, []); // 2. XỬ LÝ GỬI TIN NHẮN VÀ GỌI API
+
+    loadAllData();
+  }, [user?.id]); // Chỉ chạy lại khi User ID thay đổi
+
+  const handleQuickQuery = async (queryText: string) => {
+    if (isTyping || !systemInstruction) return;
+
+    // 1. Tạo tin nhắn giả lập của người dùng
+    const userMsg: Message = {
+      id: Date.now().toString(),
+      text: queryText,
+      sender: "user",
+    };
+
+    // 2. Cập nhật màn hình chat và bắt đầu gọi AI
+    setMessages((prev) => [...prev, userMsg]);
+    setIsTyping(true);
+
+    // Tự động cuộn xuống cuối
+    setTimeout(() => flatListRef.current?.scrollToEnd({ animated: true }), 100);
+
+    try {
+      const response = await callGeminiApi(
+        queryText,
+        [...messages, userMsg],
+        systemInstruction,
+      );
+
+      // Xử lý Map dữ liệu sản phẩm tương tự như hàm handleSend cũ của bạn
+      let finalSuggestions = response.suggestions || [];
+      if (finalSuggestions.length > 0) {
+        finalSuggestions = finalSuggestions.map((s) => {
+          const productDetail = products.find((p) => p.id === s.id);
+          return {
+            ...s,
+            image_url: productDetail?.image || "https://placehold.co/150",
+            price: productDetail?.price || s.price,
+            salePrice: productDetail?.salePrice || s.salePrice,
+          };
+        });
+      }
+
+      const botMessage: Message = {
+        id: (Date.now() + 1).toString() + "bot",
+        text: response.text,
+        sender: "bot",
+        suggestions: finalSuggestions,
+        action: response.action,
+      };
+      setMessages((prev) => [...prev, botMessage]);
+    } catch (error: any) {
+      // Xử lý lỗi...
+    } finally {
+      setIsTyping(false);
+    }
+  };
 
   const handleSend = async () => {
     const userQuery = input.trim();
@@ -358,7 +506,7 @@ export function ChatbotScreen() {
       const response = await callGeminiApi(
         userQuery,
         [...messages, newMessage],
-        systemInstruction
+        systemInstruction,
       );
 
       // ✅ MAP SẢN PHẨM TÌM ĐƯỢC VỚI URL ẢNH TỪ DỮ LIỆU GỐC
@@ -383,6 +531,7 @@ export function ChatbotScreen() {
         text: response.text,
         sender: "bot",
         suggestions: finalSuggestions, // Gửi đề xuất đi kèm
+        action: response.action,
       };
       setMessages((prev) => [...prev, botMessage]);
     } catch (error: any) {
@@ -397,7 +546,7 @@ export function ChatbotScreen() {
       setIsTyping(false);
       setTimeout(
         () => flatListRef.current?.scrollToEnd({ animated: true }),
-        100
+        100,
       );
     }
   };
@@ -459,6 +608,15 @@ export function ChatbotScreen() {
           <Text style={isUser ? styles.userText : styles.botText}>
             {item.text}
           </Text>
+          {item.action && (
+            <TouchableOpacity
+              style={styles.actionButton}
+              onPress={() => router.push(item.action?.screen as any)}
+            >
+              <Feather name="external-link" size={14} color={COLORS.primary} />
+              <Text style={styles.actionButtonText}>{item.action.label}</Text>
+            </TouchableOpacity>
+          )}
         </View>
         {/* Render Suggestions */}
         {item.sender === "bot" &&
@@ -497,6 +655,25 @@ export function ChatbotScreen() {
         style={styles.chatList}
         contentContainerStyle={styles.chatListContent}
       />
+      {/* 💡 QUICK QUESTIONS SECTION */}
+      <View style={styles.quickQuestionsWrapper}>
+        <ScrollView
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.quickQuestionsContent}
+        >
+          {QUICK_QUESTIONS.map((item) => (
+            <TouchableOpacity
+              key={item.id}
+              style={styles.quickQuestionBtn}
+              onPress={() => handleQuickQuery(item.query)} // Gọi hàm xử lý riêng
+              disabled={isTyping}
+            >
+              <Text style={styles.quickQuestionText}>{item.text}</Text>
+            </TouchableOpacity>
+          ))}
+        </ScrollView>
+      </View>
       {/* Input Area */}
       <View style={styles.inputArea}>
         <TextInput
@@ -762,5 +939,52 @@ const styles = StyleSheet.create({
     marginTop: 5,
     fontSize: 14,
     color: COLORS.text,
+  },
+  quickQuestionsWrapper: {
+    backgroundColor: COLORS.background,
+    paddingVertical: 8,
+    borderTopWidth: 1,
+    borderTopColor: COLORS.border,
+  },
+  quickQuestionsContent: {
+    paddingHorizontal: 12,
+    gap: 8,
+  },
+  quickQuestionBtn: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: COLORS.white,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+    // Hiệu ứng đổ bóng nhẹ
+    shadowColor: COLORS.primary,
+    shadowOffset: { width: 0, height: 1 },
+    shadowOpacity: 0.1,
+    shadowRadius: 2,
+    elevation: 2,
+  },
+  quickQuestionText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: "500",
+  },
+  actionButton: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.white,
+    paddingVertical: 8,
+    paddingHorizontal: 12,
+    borderRadius: 8,
+    marginTop: 10,
+    alignSelf: "flex-start",
+    gap: 6,
+    borderWidth: 1,
+    borderColor: COLORS.primary,
+  },
+  actionButtonText: {
+    color: COLORS.primary,
+    fontSize: 13,
+    fontWeight: "bold",
   },
 });

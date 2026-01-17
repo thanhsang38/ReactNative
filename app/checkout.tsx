@@ -19,10 +19,12 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 import { AddressRow, getAddresses, OrderCartItem } from "./services/baserowApi";
 // 💡 IMPORTS COMPONENTS & CONTEXTS
+import * as Location from "expo-location";
 import { Header } from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
 import { CreateOrderInput, useOrders } from "../context/OrderContext";
+import { getOSRMDistance } from "./services/mapService";
 
 // --- Giả định Types & Constants ---
 type Page = string;
@@ -72,6 +74,9 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
     getTotalPrice,
     clearCart,
     selectedVoucher,
+    getShippingFee, // 💡 Lấy hàm tính phí ship
+    updateDistance, // 💡 Lấy hàm cập nhật khoảng cách
+    distance,
   } = useCart();
   const { createOrder } = useOrders();
   const insets = useSafeAreaInsets();
@@ -116,7 +121,14 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
         });
 
         const defaultAddr = sortedAddresses[0];
-
+        if (defaultAddr) {
+          // Thực hiện y hệt bước Geocoding + OSRM ở trên để có phí ship ngay khi mở trang
+          const geo = await Location.geocodeAsync(defaultAddr.address);
+          if (geo.length > 0) {
+            const km = await getOSRMDistance(geo[0].latitude, geo[0].longitude);
+            updateDistance(km);
+          }
+        }
         setDefaultAddress({
           id: defaultAddr.id,
           addressText: defaultAddr.address,
@@ -147,34 +159,60 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
     }, [user?.id])
   );
 
-  const handleAddressSelect = (selectedAddr: AddressRow) => {
+  const handleAddressSelect = async (selectedAddr: AddressRow) => {
     if (!user) return;
+
+    // 1. Cập nhật UI ngay lập tức
     setDefaultAddress({
       id: selectedAddr.id,
       addressText: selectedAddr.address,
       phone: user.phone || "N/A",
     });
     setShowAddressModal(false);
+
+    // 2. Tính toán phí ship cho địa chỉ mới
+    try {
+      // Chuyển địa chỉ chữ thành tọa độ (Geocoding)
+      const geo = await Location.geocodeAsync(selectedAddr.address);
+      if (geo.length > 0) {
+        const { latitude, longitude } = geo[0];
+
+        // Tính khoảng cách đường bộ bằng OSRM
+        const km = await getOSRMDistance(latitude, longitude);
+
+        // Cập nhật vào CartContext để tự tính phí ship mới
+        updateDistance(km);
+        Toast.show({
+          type: "success",
+          text1: "Đã cập nhật phí ship",
+          text2: `Khoảng cách: ${km.toFixed(1)} km`,
+        });
+      }
+    } catch (error) {
+      console.error("Không thể tính phí ship cho địa chỉ này:", error);
+    }
   };
   const handleNavigateToAddAddress = () => {
     setShowAddressModal(false);
     router.push("/address");
   };
   const handlePlaceOrder = async () => {
-    // ✅ FIX: Thêm async
-    // 💡 Logic Xử lý Đặt hàng
+    console.log("🚀 [CHECKPOINT] Bắt đầu nhấn đặt hàng");
+
     if (items.length === 0) {
+      console.log("❌ Lỗi: Giỏ hàng trống");
       Alert.alert("Lỗi", "Giỏ hàng đang trống!");
       return;
     }
     if (!defaultAddress) {
+      console.log("❌ Lỗi: Chưa chọn địa chỉ");
       Alert.alert("Lỗi", "Vui lòng chọn địa chỉ giao hàng trước khi đặt.");
       return;
     }
 
+    console.log("💳 Phương thức thanh toán đã chọn:", paymentMethod);
     setIsPlacingOrder(true);
 
-    // 1. Chuẩn bị Items cho API (Chuyển CartItem Client sang OrderCartItem API)
     const apiItems: OrderCartItem[] = items.map((item) => ({
       productId: item.productId,
       name: item.name,
@@ -187,32 +225,63 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
       isDrink: item.isDrink,
     }));
 
-    // 2. Tạo Order Input
     const orderInput: CreateOrderInput = {
       items: apiItems,
       total: totalPrice,
-      deliveryAddressId: defaultAddress.id, // ID Link Row
+      deliveryAddressId: defaultAddress.id,
       paymentMethod: paymentMethod,
-      deliveryAddressText: defaultAddress.addressText, // Chuỗi hiển thị
+      deliveryAddressText: defaultAddress.addressText,
       note: note,
       voucherId: selectedVoucher?.id,
     };
 
+    console.log(
+      "📦 Dữ liệu đơn hàng gửi lên API:",
+      JSON.stringify(orderInput, null, 2)
+    );
+
     try {
-      // 3. Gọi API tạo đơn hàng
-      await createOrder(orderInput);
+      console.log("📡 Đang gọi API createOrder...");
+      const result = await createOrder(orderInput);
 
-      // 4. Xóa giỏ hàng
-      clearCart();
+      console.log("✅ Kết quả trả về từ API:", JSON.stringify(result, null, 2));
 
-      // 5. Điều hướng
-      router.replace("/(tabs)/orders");
+      if (result && result.success && result.data) {
+        const newOrderId = result.data.id;
+        console.log("🆔 Đơn hàng đã tạo thành công với ID:", newOrderId);
+
+        clearCart();
+        console.log("🛒 Đã xóa giỏ hàng");
+
+        // KIỂM TRA ĐIỀU KIỆN CHUYỂN TRANG
+        if (paymentMethod === "banking") {
+          console.log("➡️ Đang chuyển hướng sang trang QR...");
+          router.push({
+            pathname: "/payment-qr",
+            params: {
+              orderId: newOrderId.toString(), // Ép kiểu sang string để an toàn
+              total: totalPrice.toString(),
+            },
+          });
+        } else {
+          console.log(
+            "➡️ Đang chuyển hướng về trang Orders (Tiền mặt/Khác)..."
+          );
+          router.replace("/(tabs)/orders");
+        }
+      } else {
+        console.log(
+          "⚠️ API trả về success: false hoặc không có data. Message:",
+          result?.message
+        );
+        router.replace("/(tabs)/orders");
+      }
     } catch (e) {
-      // Lỗi đã được xử lý trong Context, chỉ cần log
-      console.error("Error placing order:", e);
+      console.error("🔥 LỖI NGHIÊM TRỌNG TRONG TRY-CATCH:", e);
       Alert.alert("Lỗi", "Không thể đặt hàng. Vui lòng thử lại.");
     } finally {
       setIsPlacingOrder(false);
+      console.log("🏁 Kết thúc quá trình xử lý đặt hàng");
     }
   };
   const isBusy = isAddressLoading || isPlacingOrder;
@@ -427,10 +496,25 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
               </View>
 
               <View style={styles.summaryRow}>
-                <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
+                <View>
+                  <Text style={styles.summaryLabel}>Phí vận chuyển</Text>
+                  {distance > 0 && (
+                    <Text style={{ fontSize: 11, color: COLORS.slate500 }}>
+                      ({distance.toFixed(1)} km)
+                    </Text>
+                  )}
+                </View>
 
-                <Text style={styles.summaryValueFree}>
-                  {isFreeShipping ? "Miễn phí" : "20.000đ"}
+                <Text
+                  style={
+                    getShippingFee() === 0
+                      ? styles.summaryValueFree
+                      : styles.summaryValue
+                  }
+                >
+                  {getShippingFee() === 0
+                    ? "Miễn phí"
+                    : `${getShippingFee().toLocaleString("vi-VN")}đ`}
                 </Text>
               </View>
               <View style={styles.summaryRow}>

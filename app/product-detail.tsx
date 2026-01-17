@@ -275,19 +275,6 @@ export function ProductDetailPage() {
     handleGoBack();
   };
 
-  // 💡 Logic Format Date
-  const formatDate = (date: Date) => {
-    const now = Date.now();
-    const diff = now - date.getTime();
-    const days = Math.floor(diff / (1000 * 60 * 60 * 24));
-
-    if (days === 0) return "Hôm nay";
-    if (days === 1) return "Hôm qua";
-    if (days < 7) return `${days} ngày trước`;
-    if (days < 30) return `${Math.floor(days / 7)} tuần trước`;
-    return `${Math.floor(days / 30)} tháng trước`;
-  };
-
   const headerHeight = 50 + insets.top;
   const totalPrice = calculatePrice();
   if (!product) return;

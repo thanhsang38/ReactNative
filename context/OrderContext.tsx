@@ -55,7 +55,9 @@ interface OrderContextType {
   createOrder: (
     orderData: CreateOrderInput,
     onSuccess?: () => void
-  ) => Promise<void>;
+  ) => Promise<
+    { success: boolean; data?: OrderRow; message?: string } | undefined
+  >;
 
   cancelOrder: (orderId: string, onSuccess?: () => void) => Promise<void>;
 
@@ -150,12 +152,14 @@ export function OrderProvider({ children }: { children: ReactNode }) {
 
         showSuccessToast("Đặt hàng thành công!");
         if (onSuccess) onSuccess();
+        return result;
       } else {
         Toast.show({
           type: "error",
           text1: "Lỗi",
           text2: result.message || "Tạo đơn hàng thất bại.",
         });
+        return result;
       }
     } catch (e) {
       console.error("Lỗi trong OrderProvider:", e);
