@@ -1,7 +1,7 @@
 import { Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useRouter } from "expo-router"; // Cần thêm import này
-import React, { ComponentProps, useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   ActivityIndicator,
   Dimensions,
@@ -27,8 +27,6 @@ import {
 } from "./services/baserowApi"; // ✅ IMPORT API FAVORITES
 
 // --- Types & Data ---
-type Page = string;
-type IoniconsName = ComponentProps<typeof Ionicons>["name"];
 const normalizeText = (text: any): string => {
   if (!text) return "";
 
@@ -159,7 +157,7 @@ export function FavoritesPage({ goBack }: FavoritesPageProps) {
     setFavoriteProducts(
       newIds.length > 0
         ? favoriteProducts.filter((p) => newIds.includes(p.id))
-        : []
+        : [],
     );
 
     try {
@@ -225,7 +223,7 @@ export function FavoritesPage({ goBack }: FavoritesPageProps) {
 
   const handleNavigate = (path: string, id?: string) => {
     router.push(
-      id ? ({ pathname: path, params: { id } } as any) : (path as any)
+      id ? ({ pathname: path, params: { id } } as any) : (path as any),
     );
   };
 

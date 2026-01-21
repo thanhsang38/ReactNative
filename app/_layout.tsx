@@ -3,7 +3,6 @@ import { DefaultTheme, ThemeProvider } from "@react-navigation/native";
 import { Stack, useRouter, useSegments } from "expo-router";
 import { StatusBar } from "expo-status-bar";
 import React from "react";
-import { StyleSheet } from "react-native";
 import "react-native-reanimated";
 import Toast from "react-native-toast-message";
 import { ChatbotFAB } from "../components/ChatbotFAB";
@@ -119,17 +118,3 @@ function RootLayoutContent() {
     </>
   );
 }
-
-const styles = StyleSheet.create({
-  loadingContainer: {
-    flex: 1,
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "#fff",
-  },
-  loadingText: {
-    marginTop: 10,
-    fontSize: 16,
-    color: "#333",
-  },
-});

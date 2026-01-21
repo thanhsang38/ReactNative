@@ -145,7 +145,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
         const foundProvince = provinces.find(
           (p: any) =>
             provinceNameFromGPS?.includes(p.name) ||
-            p.name.includes(provinceNameFromGPS || "")
+            p.name.includes(provinceNameFromGPS || ""),
         );
 
         if (foundProvince) {
@@ -157,7 +157,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
           // 3. TỰ ĐỘNG CHỌN QUẬN/HUYỆN (Cần đợi API load districts xong)
           // Vì useEffect theo dõi watchedProvince, ta gọi fetch districts trực tiếp ở đây để nhanh
           const distRes = await fetch(
-            `https://provinces.open-api.vn/api/p/${foundProvince.code}?depth=2`
+            `https://provinces.open-api.vn/api/p/${foundProvince.code}?depth=2`,
           );
           const distData = await distRes.json();
           const apiDistricts = distData.districts || [];
@@ -167,7 +167,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
           const foundDistrict = apiDistricts.find(
             (d: any) =>
               districtNameFromGPS?.includes(d.name) ||
-              d.name.includes(districtNameFromGPS || "")
+              d.name.includes(districtNameFromGPS || ""),
           );
 
           if (foundDistrict) {
@@ -178,7 +178,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
 
             // 4. TỰ ĐỘNG CHỌN PHƯỜNG/XÃ
             const wardRes = await fetch(
-              `https://provinces.open-api.vn/api/d/${foundDistrict.code}?depth=2`
+              `https://provinces.open-api.vn/api/d/${foundDistrict.code}?depth=2`,
             );
             const wardData = await wardRes.json();
             const apiWards = wardData.wards || [];
@@ -189,7 +189,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
             const foundWard = apiWards.find(
               (w: any) =>
                 wardNameFromGPS?.includes(w.name) ||
-                w.name.includes(wardNameFromGPS || "")
+                w.name.includes(wardNameFromGPS || ""),
             );
 
             if (foundWard) {
@@ -205,7 +205,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
         });
       }
     } catch (error) {
-      console.error(error);
+      // console.error(error);
       Alert.alert("Lỗi", "Không thể xác định vị trí tự động.");
     } finally {
       setIsLocating(false);
@@ -225,6 +225,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
           phone: user.phone || "N/A",
           isDefault: addr.is_default || false,
         }));
+        console.log("địa chỉ TẢI VỀ:", mapped);
         setAddresses(mapped.sort((a, b) => (b.isDefault ? -1 : 1)));
       }
     } catch (e) {
@@ -244,7 +245,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
   useEffect(() => {
     if (watchedProvince) {
       fetch(
-        `https://provinces.open-api.vn/api/p/${watchedProvince.code}?depth=2`
+        `https://provinces.open-api.vn/api/p/${watchedProvince.code}?depth=2`,
       )
         .then((res) => res.json())
         .then((data) => setDistricts(data.districts));
@@ -254,7 +255,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
   useEffect(() => {
     if (watchedDistrict) {
       fetch(
-        `https://provinces.open-api.vn/api/d/${watchedDistrict.code}?depth=2`
+        `https://provinces.open-api.vn/api/d/${watchedDistrict.code}?depth=2`,
       )
         .then((res) => res.json())
         .then((data) => setWards(data.wards));
@@ -322,7 +323,7 @@ export function AddressPage({ goBack }: { goBack: () => void }) {
     try {
       // 1. Cập nhật is_default trên Baserow (giữ nguyên logic cũ của bạn)
       const updatePromises = addresses.map((addr) =>
-        updateAddress(Number(addr.id), { is_default: addr.id === id })
+        updateAddress(Number(addr.id), { is_default: addr.id === id }),
       );
       await Promise.all(updatePromises);
 

@@ -32,11 +32,6 @@ axiosClient.interceptors.request.use((config) => {
 // ----------- LOG RESPONSE -------------
 axiosClient.interceptors.response.use(
   (response: AxiosResponse) => {
-    // console.log("📥 [RESPONSE]", {
-    //   url: response.config.url,
-    //   status: response.status,
-    //   data: response.data,
-    // });
     return response.data;
   },
   (error) => {
@@ -46,7 +41,7 @@ axiosClient.interceptors.response.use(
       response: error.response?.data,
     });
     return Promise.reject(error);
-  }
+  },
 );
 
 export default axiosClient;

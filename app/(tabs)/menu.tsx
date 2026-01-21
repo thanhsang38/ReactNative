@@ -1,7 +1,7 @@
 import { Feather, Ionicons } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
 import { useFocusEffect, useRouter } from "expo-router"; // 💡 IMPORT ROUTER
-import React, { useCallback, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Dimensions,
   FlatList,
@@ -17,6 +17,7 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useAuth } from "../../context/AuthContext";
 import { FilterModal } from "../FilterModal"; // 💡 IMPORT MODAL LỌC
 // --- Imports Logic Context ---
+import AsyncStorage from "@react-native-async-storage/async-storage";
 import Toast from "react-native-toast-message";
 import { Header } from "../../components/Header"; // 💡 Component Header thực tế
 import { CartItem, useCart } from "../../context/CartContext"; // 💡 Import CartItem type
@@ -157,7 +158,59 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     isSale: false,
     isHot: false,
   });
+  const [isSearchFocused, setIsSearchFocused] = useState(false);
+  const [searchHistory, setSearchHistory] = useState<string[]>([]);
+  const HISTORY_KEY = user?.id ? `@search_history_${user.id}` : null;
   const { addToCart } = useCart();
+  useEffect(() => {
+    const loadHistory = async () => {
+      if (HISTORY_KEY) {
+        const saved = await AsyncStorage.getItem(HISTORY_KEY);
+        if (saved) setSearchHistory(JSON.parse(saved));
+        else setSearchHistory([]); // Nếu user mới thì reset mảng rỗng
+      }
+    };
+    loadHistory();
+  }, [user?.id]);
+
+  const saveSearchKeyword = async (keyword: string) => {
+    const trimmed = keyword.trim();
+    if (!trimmed || !HISTORY_KEY) return;
+
+    const newHistory = [
+      trimmed,
+      ...searchHistory.filter((item) => item !== trimmed),
+    ].slice(0, 5);
+
+    setSearchHistory(newHistory);
+    await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+  };
+
+  const deleteHistoryItem = async (itemToDelete: string) => {
+    if (!HISTORY_KEY) return;
+
+    const newHistory = searchHistory.filter((item) => item !== itemToDelete);
+    setSearchHistory(newHistory);
+    await AsyncStorage.setItem(HISTORY_KEY, JSON.stringify(newHistory));
+  };
+
+  const clearHistory = async () => {
+    // 💡 Kiểm tra: Nếu không có HISTORY_KEY (chưa đăng nhập) thì không làm gì cả
+    if (!HISTORY_KEY || HISTORY_KEY === "") return;
+
+    try {
+      setSearchHistory([]); // Xóa trên giao diện ngay lập tức
+      await AsyncStorage.removeItem(HISTORY_KEY); // Xóa trong bộ nhớ máy
+
+      Toast.show({
+        type: "success",
+        text1: "Đã xóa lịch sử",
+        visibilityTime: 1500,
+      });
+    } catch (error) {
+      console.error("Lỗi khi xóa lịch sử:", error);
+    }
+  };
 
   const fetchAllData = useCallback(async () => {
     setIsLoading(true);
@@ -204,7 +257,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     useCallback(() => {
       setIsLoading(true);
       fetchAllData();
-    }, [fetchAllData])
+    }, [fetchAllData]),
   );
 
   const getFinalPrice = (product: ProductRow) => {
@@ -226,7 +279,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
     if (searchQuery.trim()) {
       const keyword = normalizeText(searchQuery);
       filtered = filtered.filter((p) =>
-        normalizeText(p.name).includes(keyword)
+        normalizeText(p.name).includes(keyword),
       );
     }
 
@@ -330,7 +383,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
 
   const displayedProducts = processedProducts.slice(
     (currentPage - 1) * ITEMS_PER_PAGE,
-    currentPage * ITEMS_PER_PAGE
+    currentPage * ITEMS_PER_PAGE,
   );
 
   const goToNextPage = () => {
@@ -357,7 +410,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
   };
   const onAddToCart = (product: ProductRow) => {
     const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(
-      product.category ?? ""
+      product.category ?? "",
     );
     const finalPrice =
       product.salePrice && Number(product.salePrice) > 0
@@ -406,10 +459,68 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
               <TextInput
                 value={searchQuery}
                 onChangeText={setSearchQuery}
+                onFocus={() => setIsSearchFocused(true)} // Hiện khi nhấn vào
                 placeholder="Tìm kiếm đồ uống..."
                 placeholderTextColor={COLORS.slate400}
                 style={styles.searchInput}
+                onSubmitEditing={() => {
+                  saveSearchKeyword(searchQuery);
+                  setIsSearchFocused(false);
+                }}
+                returnKeyType="search"
               />
+
+              {/* Lịch sử tìm kiếm dạng NỔI (Floating) */}
+              {isSearchFocused && searchHistory.length > 0 && (
+                <>
+                  {/* Lớp nền trong suốt bao phủ để khi nhấn ra ngoài thì đóng lịch sử */}
+                  <TouchableOpacity
+                    style={styles.historyOutsideOverlay}
+                    activeOpacity={1}
+                    onPress={() => setIsSearchFocused(false)}
+                  />
+
+                  <View style={styles.floatingHistory}>
+                    <View style={styles.historyHeader}>
+                      <Text style={styles.historyTitle}>Tìm kiếm gần đây</Text>
+                      <TouchableOpacity onPress={clearHistory}>
+                        <Text style={styles.clearText}>Xóa tất cả</Text>
+                      </TouchableOpacity>
+                    </View>
+                    <View style={styles.historyChipsWrapper}>
+                      {searchHistory.map((item, index) => (
+                        <View key={index} style={styles.historyItem}>
+                          <TouchableOpacity
+                            style={styles.historyItemMain}
+                            onPress={() => {
+                              setSearchQuery(item);
+                              setIsSearchFocused(false);
+                            }}
+                          >
+                            <Feather
+                              name="clock"
+                              size={12}
+                              color={COLORS.slate400}
+                            />
+                            <Text style={styles.historyItemText}>{item}</Text>
+                          </TouchableOpacity>
+
+                          <TouchableOpacity
+                            onPress={() => deleteHistoryItem(item)}
+                            style={styles.deleteSingleItem}
+                          >
+                            <Ionicons
+                              name="close-circle"
+                              size={18}
+                              color={COLORS.slate400}
+                            />
+                          </TouchableOpacity>
+                        </View>
+                      ))}
+                    </View>
+                  </View>
+                </>
+              )}
             </View>
             <TouchableOpacity
               onPress={() => setShowFilterModal(true)} // 💡 MỞ MODAL LỌC
@@ -424,6 +535,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
               )}
             </TouchableOpacity>
           </View>
+
           {/* Categories */}
           <ScrollView
             horizontal
@@ -488,7 +600,7 @@ export function MenuPage({ navigateTo }: MenuPageProps) {
               const discountPercent = hasSale
                 ? Math.round(
                     (1 - Number(product.salePrice) / Number(product.price)) *
-                      100
+                      100,
                   )
                 : 0;
 
@@ -679,13 +791,11 @@ const styles = StyleSheet.create({
     gap: 12,
     marginBottom: 16,
     marginTop: 16,
+    zIndex: 100, // 💡 Thêm zIndex cho cả container cha này
+    elevation: 100,
   },
-  searchInputWrapper: {
-    flex: 1,
-    position: "relative",
-    justifyContent: "center",
-  },
-  searchIcon: { position: "absolute", left: 16 },
+
+  searchIcon: { position: "absolute", left: 16, lineHeight: 49 },
   searchInput: {
     width: "100%",
     paddingLeft: 48,
@@ -876,5 +986,73 @@ const styles = StyleSheet.create({
     color: "#fff",
     fontSize: 12,
     fontWeight: "bold",
+  },
+  historyContainer: { marginTop: 12, marginBottom: 8 },
+  historyHeader: {
+    flexDirection: "row",
+    justifyContent: "space-between",
+    alignItems: "center",
+    marginBottom: 8,
+  },
+  historyTitle: { fontSize: 13, color: COLORS.slate500, fontWeight: "600" },
+  clearText: { fontSize: 12, color: COLORS.emerald600 },
+
+  searchInputWrapper: {
+    flex: 1,
+    position: "relative",
+    zIndex: 50, // Đảm bảo nổi lên trên tất cả
+  },
+  floatingHistory: {
+    position: "absolute",
+    top: 55, // Ngay dưới ô input
+    left: 0,
+    right: 0,
+    backgroundColor: COLORS.white,
+    borderRadius: 12,
+    padding: 12,
+    borderWidth: 1,
+    borderColor: COLORS.slate200,
+    // Hiệu ứng đổ bóng để tạo cảm giác nổi
+    shadowColor: "#000",
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.15,
+    shadowRadius: 8,
+    elevation: 10,
+    zIndex: 999999,
+  },
+  historyChipsWrapper: {
+    flexDirection: "row",
+    flexWrap: "wrap", // Cho phép xuống dòng nếu nhiều chip
+    gap: 8,
+  },
+  historyItem: {
+    flexDirection: "row",
+    alignItems: "center",
+    backgroundColor: COLORS.bg,
+    borderRadius: 20,
+    borderWidth: 1,
+    borderColor: COLORS.slate200,
+    paddingLeft: 10,
+  },
+  historyItemMain: {
+    flexDirection: "row",
+    alignItems: "center",
+    paddingVertical: 6,
+    gap: 6,
+  },
+  deleteSingleItem: {
+    padding: 6,
+    marginLeft: 2,
+  },
+  historyItemText: { color: COLORS.slate700, fontSize: 13 },
+  historyOutsideOverlay: {
+    position: "absolute",
+    // 💡 Phủ rộng ra xung quanh để nhấn vào đâu cũng thoát được trừ cái bảng lịch sử
+    top: -500,
+    bottom: -2000,
+    left: -100,
+    right: -100,
+    zIndex: 999998, // Thấp hơn bảng lịch sử 1 bậc
+    backgroundColor: "transparent", // Để transparent để khách vẫn thấy đồ uống bên dưới
   },
 });

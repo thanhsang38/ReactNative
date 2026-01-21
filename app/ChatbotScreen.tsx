@@ -4,6 +4,7 @@ import { useRouter } from "expo-router";
 import React, { useEffect, useRef, useState } from "react";
 import {
   ActivityIndicator,
+  Animated,
   FlatList,
   Image,
   KeyboardAvoidingView,
@@ -19,19 +20,24 @@ import { useSafeAreaInsets } from "react-native-safe-area-context";
 import Toast from "react-native-toast-message";
 
 // ✅ IMPORT API DỮ LIỆU SẢN PHẨM CỦA BẠN
+import * as Location from "expo-location";
 import { Header } from "../components/Header";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext"; // ✅ IMPORT CART CONTEXT
 import { fetchOrdersWithDetails } from "../context/OrderContext";
 import {
   CategoryRow,
+  checkUserHasWon,
+  createVoucherForWinner,
+  getAddresses,
   getCategories,
   getProducts,
   ProductRow,
 } from "./services/baserowApi";
+import { getOSRMDistance } from "./services/mapService";
 // --- CẤU HÌNH VÀ HẰNG SỐ ---
-const GEMINI_API_KEY = "AIzaSyAx9uzHBiIvHyo1upz0Ad0bwAHhtaBqpKg";
-const GEMINI_MODEL = "gemini-2.5-flash-preview-09-2025";
+const GEMINI_API_KEY = "AIzaSyC2PwKRBsgk-pfoW-H80cYtWFrVhIsS4qw";
+const GEMINI_MODEL = "gemini-3-flash-preview";
 const GEMINI_API_URL = `https://generativelanguage.googleapis.com/v1beta/models/${GEMINI_MODEL}:generateContent?key=${GEMINI_API_KEY}`;
 const MAX_RETRIES = 3;
 const INITIAL_DELAY_MS = 1000;
@@ -125,77 +131,121 @@ const createGroundingData = (
     }
   }); // ✅ SỬ DỤNG CÚ PHÁP JSON DỰA TRÊN CẤU TRÚC DỮ LIỆU ĐỂ YÊU CẦU MÔN ĐỀ XUẤT SẢN PHẨM
 
-  let userAddressText = "Chưa thiết lập";
-  if (user?.address) {
-    userAddressText =
-      typeof user.address === "object"
-        ? user.address.address || JSON.stringify(user.address)
-        : String(user.address);
+  let defaultAddressText = "Chưa thiết lập";
+  let otherAddresses = "";
+
+  if (Array.isArray(user?.address)) {
+    // 1. Tìm địa chỉ có is_default: true
+    const foundDefault = user.address.find(
+      (addr: any) => addr.is_default === true || addr.isDefault === true,
+    );
+
+    if (foundDefault) {
+      defaultAddressText = foundDefault.address;
+    } else if (user.address.length > 0) {
+      // Nếu không có cái nào là mặc định, lấy cái đầu tiên làm fallback
+      defaultAddressText = user.address[0].address;
+    }
+
+    // 2. Tạo danh sách tất cả để AI có cái nhìn tổng quan (nếu cần)
+    otherAddresses = user.address
+      .map((addr: any, index: number) => {
+        const isThisDefault =
+          addr.is_default === true || addr.isDefault === true;
+        return `- Địa chỉ ${index + 1}: ${addr.address} (${addr.type})${isThisDefault ? " [ĐANG LÀ MẶC ĐỊNH]" : ""}`;
+      })
+      .join("\n");
   }
 
   let userInfo = `THÔNG TIN KHÁCH HÀNG:
   - Tên: ${user?.name || "Khách"}
   - Số điện thoại: ${user?.phone || "Chưa có"}
-  - Địa chỉ mặc định: ${userAddressText}\n`;
+  - ĐỊA CHỈ GIAO HÀNG MẶC ĐỊNH: ${defaultAddressText}
+  - PHÍ SHIP TỚI ĐỊA CHỈ NÀY: ${user.calculatedShippingFee || "Đang tính toán..."}
+  - DANH SÁCH TẤT CẢ ĐỊA CHỈ:
+  ${otherAddresses}\n`;
 
-  let historyInfo = "\nLỊCH SỬ ĐƠN HÀNG (Món khách đã mua): \n";
+  let historyInfo = "\n--- LỊCH SỬ ĐƠN HÀNG CHI TIẾT ---\n";
+
   if (recentOrders && recentOrders.length > 0) {
-    recentOrders.slice(0, 3).forEach((order) => {
-      // Trích xuất tên món từ orderDetail
-      const productNames =
-        order.orderDetail && Array.isArray(order.orderDetail)
-          ? order.orderDetail.map((d: any) => d.name).join(", ")
-          : "Không rõ tên món";
+    recentOrders.slice(0, 3).forEach((order, index) => {
+      // 💡 SỬA TÊN TRƯỜNG: Dùng 'items' thay vì 'orderDetail'
+      const orderItems = order.items || [];
 
-      historyInfo += `- Đơn ${
-        order.name || order.id
-      }: Món đã mua [${productNames}]\n`;
+      const productNames =
+        orderItems.length > 0
+          ? orderItems
+              .map((item: any) => `${item.name} (x${item.quantity || 1})`)
+              .join(", ")
+          : "Không rõ món cụ thể";
+
+      historyInfo += `${index + 1}. Mã đơn: ${order.name} | Trạng thái: ${order.status} | Món đã mua: [${productNames}]\n`;
     });
   } else {
-    historyInfo += "- Khách hàng chưa có đơn hàng nào trước đây.\n";
+    historyInfo += "Khách hàng này chưa có đơn hàng nào.\n";
   }
-  const systemInstruction = `Bạn là Chatbot tư vấn thân thiện của cửa hàng Drink Xann. Nhiệm vụ của bạn là trả lời các câu hỏi liên quan đến thực đơn và cửa hàng dựa trên dữ liệu sau.
-    Hãy dùng thông tin khách hàng để cá nhân hóa cuộc trò chuyện.
-    - Nếu khách có địa chỉ, hãy tư vấn ship.
-    - Nếu khách từng mua món nào đó, hãy hỏi thăm món đó.
-    - Luôn dùng tên khách (${user?.name}) trong câu trả lời để tạo sự thân thiện.
-    ${userInfo}
-    ${historyInfo}
+  const systemInstruction = `
+Bạn là trợ lý ảo chuyên nghiệp của Drink Xann 🌿.
+Phong cách: THÂN THIỆN - RÕ RÀNG - TRỰC QUAN.
 
-    Luôn giữ giọng điệu tích cực, chào hỏi thân thiện. KHÔNG trả lời các câu hỏi không liên quan đến sản phẩm/danh mục/cửa hàng.
-    
-    KHI ĐỀ XUẤT SẢN PHẨM (tối đa 3 món): Bạn phải trả lời bằng cấu trúc JSON sau. Nếu bạn không đề xuất sản phẩm, chỉ trả lời bằng văn bản thuần túy.
-    KHI ĐỀ XUẤT SẢN PHẨM: Nếu sản phẩm có giá giảm (salePrice), hãy ưu tiên giới thiệu.
-    CẤU TRÚC JSON YÊU CẦU:
-    {
-      "text": "[Văn bản giải thích thân thiện cho người dùng]",
-      "suggestions": [
-        {"id": 123, "name": "Tên sản phẩm", "price": 45000, "salePrice": 35000,"image_url": "URL ảnh"},
-        ...
-      ]
-    }
-    
-    DỮ LIỆU CỬA HÀNG:
-    ${productList}
-    ${categoryList}
-    DỮ LIỆU NGỮ CẢNH:
-    ${userInfo}
-    ${historyInfo}
-    ...
-    KHI KHÁCH MUỐN THỰC HIỆN HÀNH ĐỘNG: Ngoài văn bản, hãy trả về thêm trường "action".
-    Các trang hỗ trợ (screen):
-    - "/address": Khi khách muốn đổi/thêm địa chỉ, hỏi phí ship.
-    - "/cart": Khi khách muốn xem giỏ hàng hoặc thanh toán.
-    - "/(tabs)/orders": Khi khách muốn xem lịch sử đơn hàng hoặc kiểm tra trạng thái.
-    - "/vouchers": Khi khách muốn tìm mã giảm giá.
+---
+🎯 NHIỆM VỤ CHÍNH:
+- Tư vấn thực đơn, thông tin đơn hàng và cửa hàng dựa trên dữ liệu được cung cấp.
+- Cá nhân hóa cuộc trò chuyện bằng cách gọi tên khách hàng (**${user?.name}**).
+- Nếu khách từng mua món nào đó trong lịch sử, hãy hỏi thăm món đó để tăng sự thân thiện.
+---
+💡 QUY TẮC CHỦ ĐỘNG GỢI Ý:
+- Sau khi tư vấn xong sản phẩm hoặc phí ship, nếu thấy khách chưa tham gia game, hãy thêm một dòng nhỏ ở cuối tin nhắn: 
+  "✨ Mách nhỏ: Shop đang có Mini Game đoán biệt danh của người ấy trúng Voucher 100k đó, bạn có muốn thử không?"
+---
+🎮 MINI GAME: "AI LÀ NGƯỜI ADMIN THÍCH?"
+1. Kích hoạt: Khi khách hỏi về "game", "mini game", "chương trình" hoặc "khuyến mãi".
+2. CÁCH TRÌNH BÀY CÂU HỎI (QUAN TRỌNG):
+   - Phải sử dụng ký tự xuống dòng \n để liệt kê đáp án rõ ràng.
+   - KHÔNG ĐƯỢC viết câu hỏi và đáp án trên cùng 1 dòng.
+   - Định dạng mẫu bắt buộc:
+     "> **Admin thích ai nhất?** 🤔\n\n- A. Mít 🍎\n- B. **Dì** ✨\n- C. Học bổng 🎓\n- D. **H vô tâm ~~** 🕸️"
 
-    CẤU TRÚC JSON MỚI:
-    {
-      "text": "Thông báo cho khách",
-      "suggestions": [...],
-      "action": { "type": "navigate", "screen": "/address", "label": "📍 Cài đặt địa chỉ" }
-    }
-    `;
+
+3. XỬ LÝ ĐÁP ÁN:
+   - ✅ **Nếu chọn B (Dì):** Chúc mừng rầm rộ! Đây là đáp án đúng nhất. Admin thương 'Dì' nhất trên đời! 🎊 Trả về JSON Voucher **DIVOTAM100**.
+   - ❌ Nếu chọn các câu khác hoặc đang đưa ra câu hỏi: TUYỆT ĐỐI KHÔNG ghi mã "DIVOTAM100" vào văn bản.
+   - ❌ **Nếu chọn D (H vô tâm ~~):** "Uầy, bạn bị lừa rồi! 😜 Dù Admin hay gọi là 'H vô tâm' nhưng trong lòng Admin chỉ có ai kia là nhất thui. Chọn lại đi nè!"
+   - ❌ **Nếu chọn C:** Trả lời hài hước: "Sai bét rồi nha, Admin đâu có 'thực tế' đến mức chọn học bổng đâu! 😂"
+   - ❌ **Nếu chọn A:** Trả lời hài hước: "Sai bét rồi nha, bé mít cũng đáng yêu đó nhưng mà không bằng ai kia đâu đó nha 😂"
+---
+📏 QUY TẮC TRÌNH BÀY (BẮT BUỘC):
+1. Emoji: ☕🍹 (Sản phẩm), 💰🏷️ (Giá), 📍🚚 (Giao hàng), ✨🔥 (Hot).
+2. Markdown: **In đậm** từ khóa quan trọng. Trình bày theo dòng, không viết đoạn dài.
+3. Địa chỉ & Ship:
+   - Ưu tiên dùng "ĐỊA CHỈ GIAO HÀNG MẶC ĐỊNH": **${user.currentAddressName}**.
+   - Phí ship: Dùng số tiền tại "PHÍ SHIP TỚI ĐỊA CHỈ NÀY": **${user.calculatedShippingFee}**.
+   - Luôn xác nhận địa chỉ khi báo phí ship.
+
+---
+📋 DỮ LIỆU HỆ THỐNG:
+${userInfo}
+${historyInfo}
+${productList}
+${categoryList}
+
+---
+🤖 QUY TẮC PHẢN HỒI (JSON MODE):
+- TRƯỜNG HỢP 1: Tư vấn sản phẩm (tối đa 3 món) hoặc Thắng Mini Game.
+{
+  "text": "[Lời nhắn thân thiện bằng Markdown]",
+  "suggestions": [
+    {"id": 123, "name": "Tên", "price": 45000, "salePrice": 35000, "image_url": "URL"}
+  ],
+  "action": { "type": "navigate", "screen": "/vouchers", "label": "🎁 Nhận Voucher Ngay" }
+}
+
+- TRƯỜNG HỢP 2: Các hành động điều hướng khác.
+Screen hỗ trợ: "/address" (Đổi địa chỉ), "/cart" (Giỏ hàng), "/(tabs)/orders" (Đơn hàng), "/support-chat" (Gặp Admin).
+
+- TRƯỜNG HỢP 3: Chỉ trả lời văn bản thông thường (Không có đề xuất/hành động).
+Trả lời trực tiếp bằng văn bản thuần túy có định dạng Markdown.
+`;
 
   return systemInstruction;
 };
@@ -393,37 +443,73 @@ export function ChatbotScreen() {
   const [systemInstruction, setSystemInstruction] = useState("");
   const [userOrders, setUserOrders] = useState<any[]>([]);
   const flatListRef = useRef<FlatList>(null); // 1. TẢI DỮ LIỆU SẢN PHẨM VÀ TẠO SYSTEM INSTRUCTION
+  const calculateDistanceFee = (distance: number): number => {
+    if (distance <= 0 || distance <= 2) return 0; // Freeship dưới 2km
+    if (distance <= 5) return 15000; // 2km - 5km giá 15k
 
+    const extraKm = Math.ceil(distance - 5);
+    return 15000 + extraKm * 5000; // Mỗi km thêm 5k
+  };
   useEffect(() => {
     const loadAllData = async () => {
+      if (!user || !user.id) {
+        console.log("Đang chờ thông tin người dùng...");
+        return;
+      }
       try {
-        // 1. Load sản phẩm & danh mục
-        const [productResult, categoryResult] = await Promise.all([
-          getProducts(),
-          getCategories(),
-        ]);
+        // 1. Tải song song Sản phẩm và Danh mục
+        const [productResult, categoryResult, addressResult] =
+          await Promise.all([
+            getProducts(),
+            getCategories(),
+            getAddresses(user?.id),
+          ]);
 
-        // 2. Load đơn hàng của user
-        let orders: any[] = [];
+        let loadedProducts = productResult.data || [];
+        let loadedCategories = categoryResult.data || [];
+        let loadedOrders: any[] = [];
+        let loadedAddresses = addressResult?.data || [];
+        let shippingFeeText = "Chưa thiết lập địa chỉ";
+        const defaultAddr =
+          loadedAddresses.find((a: any) => a.is_default) || loadedAddresses[0];
+
+        if (defaultAddr) {
+          // Chuyển địa chỉ chữ sang tọa độ
+          const geo = await Location.geocodeAsync(defaultAddr.address);
+          if (geo && geo.length > 0) {
+            const km = await getOSRMDistance(geo[0].latitude, geo[0].longitude);
+            // Sử dụng hàm tính phí bạn đã có (ví dụ nhập từ CartContext hoặc định nghĩa lại)
+            const fee = calculateDistanceFee(km);
+            shippingFeeText = `${fee.toLocaleString("vi-VN")}đ (Khoảng cách: ${km.toFixed(1)}km)`;
+          }
+        }
+        // 2. Nếu có User, tải đơn hàng chi tiết
         if (user?.id) {
-          orders = await fetchOrdersWithDetails(user.id);
-          orders = [...orders].sort((a, b) => Number(b.id) - Number(a.id));
+          const orderResult = await fetchOrdersWithDetails(user.id);
+          loadedOrders = [...orderResult].sort(
+            (a, b) => Number(b.id) - Number(a.id),
+          );
         }
 
-        const loadedProducts = productResult.data || [];
-        const loadedCategories = categoryResult.data || [];
-
+        // 3. Cập nhật State để UI hiển thị
         setProducts(loadedProducts);
         setCategories(loadedCategories);
-        setUserOrders(orders);
-
-        // 3. TẠO INSTRUCTION KHI ĐÃ CÓ ĐỦ DỮ LIỆU
+        setUserOrders(loadedOrders);
+        const userWithFullData = {
+          ...user,
+          address: loadedAddresses,
+          calculatedShippingFee: shippingFeeText, // Truyền mảng địa chỉ vừa lấy từ API vào đây
+        };
+        // 4. ⭐ QUAN TRỌNG: Tạo Instruction ngay tại đây với dữ liệu vừa load xong
         const instruction = createGroundingData(
           loadedProducts,
           loadedCategories,
-          user,
-          orders, // Truyền mảng orders vừa fetch xong vào đây
+          userWithFullData,
+          loadedOrders, // Dùng dữ liệu cục bộ vừa tải thay vì dùng state userOrders
         );
+        // console.log("--- SYSTEM INSTRUCTION BAN ĐẦU ---");
+        // console.log(instruction);
+
         setSystemInstruction(instruction);
       } catch (e) {
         console.error("Lỗi tải dữ liệu chatbot:", e);
@@ -431,7 +517,7 @@ export function ChatbotScreen() {
     };
 
     loadAllData();
-  }, [user?.id]); // Chỉ chạy lại khi User ID thay đổi
+  }, [user?.id]); // Chỉ chạy lại khi ID người dùng thay đổi
 
   const handleQuickQuery = async (queryText: string) => {
     if (isTyping || !systemInstruction) return;
@@ -488,7 +574,7 @@ export function ChatbotScreen() {
 
   const handleSend = async () => {
     const userQuery = input.trim();
-    if (!userQuery || isTyping || !systemInstruction) return;
+    if (!userQuery || isTyping || !systemInstruction || !user?.id) return;
 
     const newMessage: Message = {
       id: Date.now().toString(),
@@ -508,7 +594,30 @@ export function ChatbotScreen() {
         [...messages, newMessage],
         systemInstruction,
       );
+      if (response.text.includes("DIVOTAM100")) {
+        const alreadyWon = await checkUserHasWon(user.id);
 
+        if (alreadyWon) {
+          const botRefusal: Message = {
+            id: Date.now().toString() + "already",
+            text: `Ôi **${user.name}** ơi, bạn đã nhận phần quà này rồi mà! 😂 Đừng quên kiểm tra túi Voucher của mình nhé! ✨`,
+            sender: "bot",
+          };
+          setMessages((prev) => [...prev, botRefusal]);
+          setIsTyping(false);
+          return;
+        }
+
+        const result = await createVoucherForWinner(user.id, user.name);
+
+        if (result.success) {
+          Toast.show({
+            type: "success",
+            text1: "🎁 CHÚC MỪNG CHIẾN THẮNG!",
+            text2: `Mã ${result.data?.code} đã được thêm vào kho quà!`,
+          });
+        }
+      }
       // ✅ MAP SẢN PHẨM TÌM ĐƯỢC VỚI URL ẢNH TỪ DỮ LIỆU GỐC
       let finalSuggestions: SuggestionItem[] = response.suggestions || [];
       if (finalSuggestions.length > 0) {
@@ -593,7 +702,36 @@ export function ChatbotScreen() {
       visibilityTime: 1500,
     });
   };
+  const TypingSkeleton = () => {
+    const opacity = useRef(new Animated.Value(0.3)).current;
 
+    useEffect(() => {
+      // Tạo vòng lặp nhấp nháy mượt mà
+      Animated.loop(
+        Animated.sequence([
+          Animated.timing(opacity, {
+            toValue: 0.7,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+          Animated.timing(opacity, {
+            toValue: 0.3,
+            duration: 800,
+            useNativeDriver: true,
+          }),
+        ]),
+      ).start();
+    }, []);
+
+    return (
+      <Animated.View
+        style={[styles.botBubble, styles.skeletonBubble, { opacity }]}
+      >
+        <View style={styles.skeletonLineShort} />
+        <View style={styles.skeletonLineLong} />
+      </Animated.View>
+    );
+  };
   const renderMessage = ({ item }: { item: Message }) => {
     const isUser = item.sender === "user";
     return (
@@ -655,6 +793,11 @@ export function ChatbotScreen() {
         style={styles.chatList}
         contentContainerStyle={styles.chatListContent}
       />
+      {isTyping && (
+        <View style={{ paddingHorizontal: 20, marginBottom: 10 }}>
+          <TypingSkeleton />
+        </View>
+      )}
       {/* 💡 QUICK QUESTIONS SECTION */}
       <View style={styles.quickQuestionsWrapper}>
         <ScrollView
@@ -674,6 +817,7 @@ export function ChatbotScreen() {
           ))}
         </ScrollView>
       </View>
+
       {/* Input Area */}
       <View style={styles.inputArea}>
         <TextInput
@@ -986,5 +1130,23 @@ const styles = StyleSheet.create({
     color: COLORS.primary,
     fontSize: 13,
     fontWeight: "bold",
+  },
+  skeletonBubble: {
+    padding: 15,
+    width: 120,
+    opacity: 0.6, // Tạo độ mờ
+  },
+  skeletonLineShort: {
+    width: "40%",
+    height: 10,
+    backgroundColor: COLORS.placeholder,
+    borderRadius: 5,
+    marginBottom: 8,
+  },
+  skeletonLineLong: {
+    width: "80%",
+    height: 10,
+    backgroundColor: COLORS.placeholder,
+    borderRadius: 5,
   },
 });

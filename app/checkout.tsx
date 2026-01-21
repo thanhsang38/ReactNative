@@ -83,7 +83,7 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
 
   // --- State Khởi tạo ---
   const [defaultAddress, setDefaultAddress] = useState<DefaultAddress | null>(
-    null
+    null,
   );
   const [isAddressLoading, setIsAddressLoading] = useState(true);
   const [paymentMethod, setPaymentMethod] = useState("cash");
@@ -92,16 +92,13 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
 
   const [showAddressModal, setShowAddressModal] = useState(false);
   const [availableAddresses, setAvailableAddresses] = useState<AddressRow[]>(
-    []
+    [],
   );
 
   const headerHeight = 10 + insets.top;
   const subtotal = getSubtotal();
   const discountAmount = getDiscountAmount();
   const totalPrice = getTotalPrice(); // Tổng cuối cùng sau giảm giá
-  const isFreeShipping =
-    selectedVoucher?.type === "shipping" &&
-    subtotal >= selectedVoucher.minOrder;
 
   const fetchDefaultAddress = async () => {
     if (!user || !user.id) return;
@@ -156,7 +153,7 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
       if (user?.id) {
         fetchDefaultAddress();
       }
-    }, [user?.id])
+    }, [user?.id]),
   );
 
   const handleAddressSelect = async (selectedAddr: AddressRow) => {
@@ -237,7 +234,7 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
 
     console.log(
       "📦 Dữ liệu đơn hàng gửi lên API:",
-      JSON.stringify(orderInput, null, 2)
+      JSON.stringify(orderInput, null, 2),
     );
 
     try {
@@ -265,14 +262,14 @@ export function CheckoutPage({ goBack }: CheckoutPageProps) {
           });
         } else {
           console.log(
-            "➡️ Đang chuyển hướng về trang Orders (Tiền mặt/Khác)..."
+            "➡️ Đang chuyển hướng về trang Orders (Tiền mặt/Khác)...",
           );
           router.replace("/(tabs)/orders");
         }
       } else {
         console.log(
           "⚠️ API trả về success: false hoặc không có data. Message:",
-          result?.message
+          result?.message,
         );
         router.replace("/(tabs)/orders");
       }

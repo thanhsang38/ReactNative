@@ -315,11 +315,8 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
   };
 
   const subtotal = calculateSubtotal();
-  const finalAmount = parseFloat(order.amount) || subtotal;
-  const hasShippingVoucher = order.voucher?.name
-    ?.toLowerCase()
-    .includes("ship");
-
+  const dbAmount = parseFloat(order.amount);
+  const finalAmount = !isNaN(dbAmount) ? dbAmount : subtotal;
   const expectedTotal = subtotal + calculatedShipFee;
   const discountAmount = Math.max(0, expectedTotal - finalAmount);
   const finalTotal = finalAmount; // Tổng cuối cùng đã tính toán
@@ -327,7 +324,8 @@ export function OrderDetailPage({ goBack }: OrderDetailPageProps) {
     ["pending", "confirmed", "preparing", "delivering", "completed"].includes(
       statusValue,
     ) && order.method !== "cash";
-  const amountToCollect = isPaid ? 0 : finalTotal;
+  const amountToCollect = isPaid || finalTotal === 0 ? 0 : finalTotal;
+
   const handleCancelOrder = () => {
     Alert.alert("Xác nhận Hủy", "Bạn có chắc muốn hủy đơn hàng này?", [
       { text: "Không", style: "cancel" },

@@ -19,6 +19,7 @@ export interface UserRow {
   order_count?: number; // Cột Count từ bảng Orders
   voucher_count?: number; // Cột Count từ bảng Vouchers
   rating?: number | string; // Cột Rollup tính trung bình sao
+  address?: { id: number; address: string }[] | [];
 }
 
 export interface ProductRow {
@@ -139,6 +140,17 @@ const normalizeCategoryName = (name: string): string => {
     .replace(/\s+/g, "_")
     .replace(/đ/g, "d"); // Xử lý chữ đ/Đ
 };
+
+const cleanPayload = (data: Record<string, any>) => {
+  const cleaned: Record<string, any> = {};
+  for (const key in data) {
+    const value = data[key];
+    if (value !== null && value !== undefined && value !== "") {
+      cleaned[key] = value;
+    }
+  }
+  return cleaned;
+};
 // -------------------------------------------------------------
 // bảng người dùng
 // -------------------------------------------------------------
@@ -170,24 +182,6 @@ export const findUserByEmail = async (email: string) => {
     };
   }
 };
-
-// -------------------------------------------------------------
-// CLEAN PAYLOAD
-// -------------------------------------------------------------
-
-const cleanPayload = (data: Record<string, any>) => {
-  const cleaned: Record<string, any> = {};
-  for (const key in data) {
-    const value = data[key];
-    if (value !== null && value !== undefined && value !== "") {
-      cleaned[key] = value;
-    }
-  }
-  return cleaned;
-};
-
-// -------------------------------------------------------------
-// FIXED REGISTER USER
 // -------------------------------------------------------------
 export const registerUser = async (userData: any) => {
   try {
@@ -232,12 +226,10 @@ export const registerUser = async (userData: any) => {
 };
 
 // -------------------------------------------------------------
-// LOGIN USER
-// -------------------------------------------------------------
 
 export const loginUser = async (
   email: string,
-  password: string
+  password: string,
 ): Promise<{
   success: boolean;
   data?: Omit<UserRow, "password_hash">;
@@ -266,9 +258,10 @@ export const loginUser = async (
     return { success: false, message: "Lỗi hệ thống. Vui lòng thử lại." };
   }
 };
+// -------------------------------------------------------------
 export const updateUser = async (
   userId: number,
-  userData: Partial<Omit<UserRow, "id" | "password_hash">>
+  userData: Partial<Omit<UserRow, "id" | "password_hash">>,
 ): Promise<{
   success: boolean;
   data?: Omit<UserRow, "password_hash">;
@@ -288,7 +281,7 @@ export const updateUser = async (
       payloadToPatch,
       {
         params: { user_field_names: true },
-      }
+      },
     );
 
     console.log("✅ [UPDATE SUCCESS]", response);
@@ -311,10 +304,11 @@ export const updateUser = async (
     return { success: false, message: detailMessage };
   }
 };
+// -------------------------------------------------------------
 export const getUserById = async (userId: number): Promise<UserRow | null> => {
   try {
     const response: UserRow = await axiosClient.get(
-      `${USERS_TABLE_ID}/${userId}/?user_field_names=true`
+      `${USERS_TABLE_ID}/${userId}/?user_field_names=true`,
     );
     return response;
   } catch (error) {
@@ -329,8 +323,8 @@ export const uploadFileToBaserow = async (fileUri: string) => {
       fileExt === "png"
         ? "image/png"
         : fileExt === "jpg" || fileExt === "jpeg"
-        ? "image/jpeg"
-        : "application/octet-stream";
+          ? "image/jpeg"
+          : "application/octet-stream";
 
     const file = await fetch(fileUri);
     const blob = await file.blob();
@@ -414,7 +408,7 @@ export const getProducts = async (): Promise<{
           rating: product.rating || 0,
           soldCount: product.soldCount || 0,
         };
-      }
+      },
     );
 
     return {
@@ -436,6 +430,7 @@ export const getProducts = async (): Promise<{
     return { success: false, message: detailMessage, totalCount: 0 };
   }
 };
+// -------------------------------------------------------------
 const normalizeSingleProduct = (product: any): ProductRow => {
   let categoryValue = "";
 
@@ -459,11 +454,9 @@ const normalizeSingleProduct = (product: any): ProductRow => {
   };
 };
 
-/**
- * ✅ HÀM MỚI: Lấy 1 sản phẩm theo ID
- */
+// -------------------------------------------------------------
 export const getProductById = async (
-  productId: number
+  productId: number,
 ): Promise<ProductRow | null> => {
   const endpoint = `${PRODUCTS_TABLE_ID}/${productId}/?user_field_names=true`;
 
@@ -479,7 +472,7 @@ export const getProductById = async (
   } catch (error: any) {
     console.error(
       "❌ [GET PRODUCT BY ID ERROR]",
-      error.response?.data || error
+      error.response?.data || error,
     );
     if (error.response?.status === 404) {
       return null;
@@ -487,7 +480,7 @@ export const getProductById = async (
     throw new Error("Không thể tải chi tiết sản phẩm.");
   }
 };
-
+// -------------------------------------------------------------
 export const getAllProductsForRelated = async (): Promise<ProductRow[]> => {
   // Lấy tối đa 5000 bản ghi (hoặc max limit Baserow cho phép)
   const endpoint = `${PRODUCTS_TABLE_ID}/?user_field_names=true&limit=5000`;
@@ -505,8 +498,9 @@ export const getAllProductsForRelated = async (): Promise<ProductRow[]> => {
     return [];
   }
 };
+// -------------------------------------------------------------
 export const getFavoriteProductsByUser = async (
-  userId: number
+  userId: number,
 ): Promise<ProductRow[]> => {
   const filters = {
     filter_type: "AND",
@@ -520,7 +514,7 @@ export const getFavoriteProductsByUser = async (
   };
 
   const endpoint = `${PRODUCTS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
-    JSON.stringify(filters)
+    JSON.stringify(filters),
   )}`;
 
   const res = await axiosClient.get(endpoint);
@@ -585,7 +579,7 @@ export const getCategories = async (): Promise<{
 // -------------------------------------------------------------
 export const createAddress = async (
   userId: number,
-  addressData: { address: string; type: string } // ✅ Đã xóa phone
+  addressData: { address: string; type: string }, // ✅ Đã xóa phone
 ): Promise<{ success: boolean; data?: AddressRow; message?: string }> => {
   // Tên cột Baserow là 'name', 'address', 'type', và 'user' (cho FK)
   const payload = {
@@ -611,8 +605,9 @@ export const createAddress = async (
     return { success: false, message: detailMessage };
   }
 };
+// -------------------------------------------------------------
 export const getAddresses = async (
-  userId: number
+  userId: number,
 ): Promise<{ success: boolean; data?: AddressRow[]; message?: string }> => {
   const filters = JSON.stringify({
     filter_type: "AND",
@@ -626,26 +621,24 @@ export const getAddresses = async (
   });
 
   const endpoint = `${USER_ADDRESSES_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
-    filters
+    filters,
   )}`;
 
   console.log(`DEBUG: Address API URL for READ: ${endpoint}`);
 
   try {
-    const response: BaserowListResponse<AddressRow> = await axiosClient.get(
-      endpoint
-    );
+    const response: BaserowListResponse<AddressRow> =
+      await axiosClient.get(endpoint);
     return { success: true, data: response.results };
   } catch (error: any) {
     console.error("❌ [GET ADDRESSES ERROR]", error.response?.data || error);
     return { success: false, message: "Không thể tải danh sách địa chỉ." };
   }
 };
-
+// -------------------------------------------------------------
 export const updateAddress = async (
   addressId: number,
-  // Payload cho phép cập nhật address, type, và is_default
-  data: { address?: string; type?: string; is_default?: boolean }
+  data: { address?: string; type?: string; is_default?: boolean },
 ): Promise<{ success: boolean; data?: AddressRow; message?: string }> => {
   const cleanedData = cleanPayload(data); // Loại bỏ các trường null/undefined
 
@@ -664,8 +657,9 @@ export const updateAddress = async (
     return { success: false, message: "Không thể cập nhật địa chỉ." };
   }
 };
+// -------------------------------------------------------------
 export const deleteAddress = async (
-  addressId: number
+  addressId: number,
 ): Promise<{ success: boolean; message?: string }> => {
   const endpoint = `${USER_ADDRESSES_TABLE_ID}/${addressId}/?user_field_names=true`;
 
@@ -690,7 +684,7 @@ export const createOrder = async (
     paymentMethod: string;
     note?: string;
     voucherId?: number;
-  }
+  },
 ): Promise<{ success: boolean; data?: OrderRow; message?: string }> => {
   const orderHeaderPayload = {
     name: `ORD-${new Date()
@@ -711,7 +705,7 @@ export const createOrder = async (
     // Bước 1: Tạo Order Header
     const orderResponse: OrderRow = await axiosClient.post(
       `${ORDERS_TABLE_ID}/?user_field_names=true`,
-      cleanPayload(orderHeaderPayload)
+      cleanPayload(orderHeaderPayload),
     );
     const newOrderId = orderResponse.id;
     const items = orderData.items;
@@ -736,7 +730,7 @@ export const createOrder = async (
 
         return axiosClient.post(
           `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true`,
-          cleanPayload(detailPayload)
+          cleanPayload(detailPayload),
         );
       });
 
@@ -758,9 +752,9 @@ export const createOrder = async (
     };
   }
 };
-
+// -------------------------------------------------------------
 export const getOrders = async (
-  userId: number
+  userId: number,
 ): Promise<{ success: boolean; data?: OrderRow[]; message?: string }> => {
   const filters = JSON.stringify({
     filter_type: "AND",
@@ -774,12 +768,11 @@ export const getOrders = async (
   });
 
   const endpoint = `${ORDERS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
-    filters
+    filters,
   )}`;
   try {
-    const response: BaserowListResponse<OrderRow> = await axiosClient.get(
-      endpoint
-    );
+    const response: BaserowListResponse<OrderRow> =
+      await axiosClient.get(endpoint);
     console.log("getOrders", response);
     return { success: true, data: response.results };
   } catch (error: any) {
@@ -787,9 +780,9 @@ export const getOrders = async (
     return { success: false, message: "Không thể tải danh sách đơn hàng." };
   }
 };
-
+// -------------------------------------------------------------
 export const fetchOrdersWithDetails = async (
-  userId: number
+  userId: number,
 ): Promise<any[]> => {
   try {
     // 1. Lấy danh sách Đơn hàng của người dùng
@@ -819,8 +812,8 @@ export const fetchOrdersWithDetails = async (
     // Gọi trực tiếp axiosClient vì đang ở trong file baserowApi
     const allDetailsRes = await axiosClient.get(
       `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
-        detailsFilters
-      )}`
+        detailsFilters,
+      )}`,
     );
     const allDetails = (allDetailsRes as any).results || [];
 
@@ -828,7 +821,7 @@ export const fetchOrdersWithDetails = async (
     const mappedOrders = orderRows.map((row) => {
       // Lọc các món thuộc về đơn hàng 'row.id' này
       const detailsForThisOrder = allDetails.filter(
-        (d: any) => d.orders && d.orders.some((o: any) => o.id === row.id)
+        (d: any) => d.orders && d.orders.some((o: any) => o.id === row.id),
       );
 
       const mappedItems = detailsForThisOrder.map((detail: any) => {
@@ -868,6 +861,7 @@ export const fetchOrdersWithDetails = async (
     return [];
   }
 };
+// -------------------------------------------------------------
 export const updatePaymentMethodToCash = async (orderId: number) => {
   const endpoint = `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`;
 
@@ -879,7 +873,7 @@ export const updatePaymentMethodToCash = async (orderId: number) => {
 
   try {
     console.log(
-      `🚀 [UPDATE PAYMENT] Đang chuyển đơn hàng #${orderId} sang Tiền mặt...`
+      `🚀 [UPDATE PAYMENT] Đang chuyển đơn hàng #${orderId} sang Tiền mặt...`,
     );
 
     const response: OrderRow = await axiosClient.patch(endpoint, payload);
@@ -904,13 +898,14 @@ export const updatePaymentMethodToCash = async (orderId: number) => {
     };
   }
 };
+// -------------------------------------------------------------
 export const getOrderById = async (
-  orderId: number
+  orderId: number,
 ): Promise<{ success: boolean; data?: any; message?: string }> => {
   try {
     // 1. Lấy Order header
     const orderRes = await axiosClient.get(
-      `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`
+      `${ORDERS_TABLE_ID}/${orderId}/?user_field_names=true`,
     );
 
     // Lưu ý: axiosClient của bạn có thể trả về data trực tiếp hoặc qua .data
@@ -929,11 +924,12 @@ export const getOrderById = async (
     });
 
     const detailEndpoint = `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
-      filters
+      filters,
     )}`;
-    const detailsRes = await axiosClient.get<
-      BaserowListResponse<OrderDetailRow>
-    >(detailEndpoint);
+    const detailsRes =
+      await axiosClient.get<BaserowListResponse<OrderDetailRow>>(
+        detailEndpoint,
+      );
 
     // Lưu ý: Kiểm tra results hoặc data tùy vào axiosClient
     const details =
@@ -998,27 +994,27 @@ export const getOrderById = async (
     return { success: false, message: "Lỗi tải chi tiết đơn hàng." };
   }
 };
+// -------------------------------------------------------------
 export const getOrderDetails = async (
-  orderId: number
+  orderId: number,
 ): Promise<{ success: boolean; data?: OrderDetailRow[]; message?: string }> => {
   const endpoint = `${ORDER_DETAILS_TABLE_ID}/?user_field_names=true&filter__orders=${orderId}`;
   try {
-    const response: BaserowListResponse<OrderDetailRow> = await axiosClient.get(
-      endpoint
-    );
+    const response: BaserowListResponse<OrderDetailRow> =
+      await axiosClient.get(endpoint);
     return { success: true, data: response.results };
   } catch (error: any) {
     console.error(
       "❌ [GET ORDER DETAILS ERROR]",
-      error.response?.data || error
+      error.response?.data || error,
     );
     return { success: false, message: "Không thể tải chi tiết đơn hàng." };
   }
 };
-// CẬP NHẬT TRẠNG THÁI ĐƠN HÀNG HOẶC CÁC TRƯỜNG KHÁC
+// -------------------------------------------------------------
 export const updateOrder = async (
   orderId: number,
-  data: Partial<OrderRow>
+  data: Partial<OrderRow>,
 ): Promise<{ success: boolean; data?: OrderRow; message?: string }> => {
   const cleanedData = cleanPayload(data);
 
@@ -1038,7 +1034,7 @@ export const updateOrder = async (
 //Bảng voucher
 //----------------------------------------------------------------------------
 export const getVouchers = async (
-  userId: number
+  userId: number,
 ): Promise<{ success: boolean; data?: VoucherRow[]; message?: string }> => {
   const filters = JSON.stringify({
     filter_type: "AND",
@@ -1052,19 +1048,18 @@ export const getVouchers = async (
   });
 
   const endpoint = `${VOUCHERS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
-    filters
+    filters,
   )}`;
 
   try {
-    const response: BaserowListResponse<VoucherRow> = await axiosClient.get(
-      endpoint
-    );
+    const response: BaserowListResponse<VoucherRow> =
+      await axiosClient.get(endpoint);
     const normalizedVouchers: VoucherRow[] = response.results.map(
       (voucher) => ({
         ...voucher,
         type: (voucher.type as any)?.value || (voucher.type as any),
         expiry: (voucher.expiry as string)?.split("T")[0] || "", // Chỉ giữ lại ngày (YYYY-MM-DD)
-      })
+      }),
     ) as VoucherRow[];
 
     return { success: true, data: normalizedVouchers };
@@ -1075,13 +1070,13 @@ export const getVouchers = async (
 };
 export const updateVoucherUsedStatus = async (
   voucherId: number,
-  usedStatus: boolean
+  usedStatus: boolean,
 ): Promise<{ success: boolean; message?: string }> => {
   const endpoint = `${VOUCHERS_TABLE_ID}/${voucherId}/`;
 
   try {
     console.log(
-      `🚀 [VOUCHER UPDATE] Cập nhật Voucher ID ${voucherId} thành used=${usedStatus}`
+      `🚀 [VOUCHER UPDATE] Cập nhật Voucher ID ${voucherId} thành used=${usedStatus}`,
     );
 
     await axiosClient.patch(
@@ -1089,7 +1084,7 @@ export const updateVoucherUsedStatus = async (
       { used: usedStatus },
       {
         params: { user_field_names: true },
-      }
+      },
     );
 
     console.log(`✅ [VOUCHER UPDATE SUCCESS]`);
@@ -1102,12 +1097,70 @@ export const updateVoucherUsedStatus = async (
     };
   }
 };
+// -------------------------------------------------------------
+export const createVoucherForWinner = async (
+  userId: number,
+  userName: string,
+): Promise<{ success: boolean; data?: VoucherRow; message?: string }> => {
+  // 1. Tạo mã Code cá nhân hóa (Ví dụ: DIVOTAM-SANG-123)
+  const suffix = Math.floor(Math.random() * 1000);
+  const personalCode = `DIVOTAM-${normalizeCategoryName(userName).toUpperCase()}-${suffix}`;
+
+  // 2. Thiết lập ngày hết hạn (30 ngày sau)
+  const expiryDate = new Date();
+  expiryDate.setDate(expiryDate.getDate() + 30);
+
+  const payload = {
+    Name: "Quà tặng Mini Game 🎁",
+    code: personalCode,
+    description: `Phần thưởng đặc biệt dành cho ${userName} vì đã hiểu thấu lòng Admin!`,
+    discount: 100000, // Giá trị giảm (Ví dụ 100k)
+    minOrder: 0,
+    maxDiscount: 100000,
+    expiry: expiryDate.toISOString().split("T")[0], // YYYY-MM-DD
+    type: "fixed", // Khớp với Single Select trên Baserow của bạn
+    used: false, // Mặc định là chưa sử dụng
+    user: [userId], // Link tới đúng ID người thắng
+  };
+
+  const endpoint = `${VOUCHERS_TABLE_ID}/?user_field_names=true`;
+
+  try {
+    console.log(`🚀 [VOUCHER] Đang tạo mã độc quyền cho ${userName}...`);
+    const response: VoucherRow = await axiosClient.post(endpoint, payload);
+    return { success: true, data: response };
+  } catch (error: any) {
+    console.error("❌ [CREATE VOUCHER ERROR]", error.response?.data || error);
+    return { success: false, message: "Lỗi hệ thống khi tạo quà tặng." };
+  }
+};
+// -------------------------------------------------------------
+export const checkUserHasWon = async (userId: number): Promise<boolean> => {
+  const filters = JSON.stringify({
+    filter_type: "AND",
+    filters: [
+      { type: "link_row_has", field: "user", value: userId.toString() },
+      { type: "contains", field: "Name", value: "Quà tặng Mini Game" },
+    ],
+  });
+
+  const endpoint = `${VOUCHERS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(filters)}`;
+
+  try {
+    const response = await axiosClient.get(endpoint);
+    // Nếu kết quả trả về count > 0 nghĩa là đã có voucher quà tặng rồi
+    return response.count > 0;
+  } catch (error) {
+    console.error("❌ [CHECK WON ERROR]", error);
+    return false;
+  }
+};
 //-------------------------------------------------------------------------------
 //Bảng yêu thích
 //-------------------------------------------------------------------------------
 
 export const getFavoriteProductIds = async (
-  userId: number
+  userId: number,
 ): Promise<number[]> => {
   const endpoint = `${USERS_TABLE_ID}/${userId}/?user_field_names=true`;
 
@@ -1126,9 +1179,10 @@ export const getFavoriteProductIds = async (
     return [];
   }
 };
+// -------------------------------------------------------------
 export const updateFavoriteProductIds = async (
   userId: number,
-  productIds: number[]
+  productIds: number[],
 ): Promise<{ success: boolean; message?: string }> => {
   const payload = {
     [USER_FAVORITES_FIELD]: productIds, // ✅ QUAN TRỌNG
@@ -1176,8 +1230,9 @@ export const createReview = async (payload: {
     return { success: false, message: "Không thể gửi đánh giá." };
   }
 };
+// -------------------------------------------------------------
 export const getReviewsByProduct = async (
-  productId: number
+  productId: number,
 ): Promise<{ success: boolean; data: ReviewRow[] }> => {
   const filters = JSON.stringify({
     filter_type: "AND",
@@ -1189,8 +1244,8 @@ export const getReviewsByProduct = async (
   try {
     const response: BaserowListResponse<any> = await axiosClient.get(
       `${REVIEWS_TABLE_ID}/?user_field_names=true&filters=${encodeURIComponent(
-        filters
-      )}`
+        filters,
+      )}`,
     );
 
     const reviews = response.results || [];
@@ -1198,13 +1253,13 @@ export const getReviewsByProduct = async (
     // ✅ TỐI ƯU HÓA: Tìm tất cả User ID duy nhất trong danh sách đánh giá
     const uniqueUserIds = Array.from(
       new Set(
-        reviews.map((r) => r.user?.[0]?.id).filter((id) => id !== undefined)
-      )
+        reviews.map((r) => r.user?.[0]?.id).filter((id) => id !== undefined),
+      ),
     ) as number[];
 
     // Tải thông tin của các User này
     const usersData = await Promise.all(
-      uniqueUserIds.map((id) => getUserById(id))
+      uniqueUserIds.map((id) => getUserById(id)),
     );
 
     // Tạo một bản đồ (Map) để tra cứu nhanh: userId -> avatarUrl
@@ -1230,10 +1285,10 @@ export const getReviewsByProduct = async (
     return { success: false, data: [] };
   }
 };
-
+// -------------------------------------------------------------
 export const updateReviewApi = async (
   reviewId: number,
-  data: { rating: number; comment: string }
+  data: { rating: number; comment: string },
 ) => {
   try {
     const payload = {
@@ -1242,7 +1297,7 @@ export const updateReviewApi = async (
     };
     const response = await axiosClient.patch(
       `${REVIEWS_TABLE_ID}/${reviewId}/?user_field_names=true`,
-      payload
+      payload,
     );
     return { success: true, data: response };
   } catch (error) {

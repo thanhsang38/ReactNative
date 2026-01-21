@@ -1,7 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import DateTimePicker from "@react-native-community/datetimepicker";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { ComponentProps, useState } from "react";
+import React, { useState } from "react";
 import { SubmitHandler, useForm } from "react-hook-form";
 import {
   ActivityIndicator,
@@ -29,8 +29,6 @@ import {
   UserRow,
 } from "./services/baserowApi";
 // --- Types & Data ---
-type FeatherIconName = ComponentProps<typeof Feather>["name"];
-type Page = string; // Dùng cho navigateTo
 
 interface EditProfilePageProps {
   goBack: () => void;
@@ -93,7 +91,7 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
   const [isSaving, setIsSaving] = useState(false);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [dateValue, setDateValue] = useState(
-    user?.birthday ? new Date(user.birthday) : new Date()
+    user?.birthday ? new Date(user.birthday) : new Date(),
   );
 
   const {
@@ -123,7 +121,7 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
     if (permissionResult.granted === false) {
       Alert.alert(
         "Lỗi",
-        "Cần quyền truy cập thư viện ảnh hoặc camera để thay đổi ảnh đại diện."
+        "Cần quyền truy cập thư viện ảnh hoặc camera để thay đổi ảnh đại diện.",
       );
       return;
     }
@@ -430,7 +428,7 @@ export function EditProfilePage({ goBack }: EditProfilePageProps) {
                       onPress={() =>
                         setValue(
                           "gender",
-                          option.value as "male" | "female" | "other"
+                          option.value as "male" | "female" | "other",
                         )
                       }
                       style={[

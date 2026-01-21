@@ -70,7 +70,6 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
       password: "",
       confirmPassword: "",
       agreeToTerms: false,
-      // Đặt giá trị mặc định cho các trường ẩn
       birthday: "",
       gender: "other", // Giữ lại giá trị hợp lệ cho Single Select
       address: "",
@@ -215,7 +214,7 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
     label: string,
     placeholder: string,
     isVisible: boolean,
-    toggleVisibility: () => void
+    toggleVisibility: () => void,
   ) => (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
@@ -256,7 +255,7 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
     label: string,
     placeholder: string,
     iconName: FeatherIconName,
-    keyboardType: "default" | "email-address" | "phone-pad" = "default"
+    keyboardType: "default" | "email-address" | "phone-pad" = "default",
   ) => (
     <View style={styles.fieldContainer}>
       <Text style={styles.label}>{label}</Text>
@@ -295,7 +294,7 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         "Số điện thoại",
         "0901234567",
         "phone",
-        "phone-pad"
+        "phone-pad",
       )}
 
       {renderTextInput(
@@ -303,7 +302,7 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         "Email",
         "example@email.com",
         "mail",
-        "email-address"
+        "email-address",
       )}
 
       {renderPasswordField(
@@ -311,7 +310,7 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         "Mật khẩu",
         "••••••••",
         showPassword,
-        () => setShowPassword(!showPassword)
+        () => setShowPassword(!showPassword),
       )}
 
       {renderPasswordField(
@@ -319,7 +318,7 @@ export function RegisterForm({ onRegistrationSuccess }: RegisterFormProps) {
         "Xác nhận mật khẩu",
         "••••••••",
         showConfirmPassword,
-        () => setShowConfirmPassword(!showConfirmPassword)
+        () => setShowConfirmPassword(!showConfirmPassword),
       )}
       {/* Terms Checkbox */}
       <View style={styles.fieldContainer}>

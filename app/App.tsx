@@ -1,8 +1,7 @@
 import { Feather } from "@expo/vector-icons";
 import { LinearGradient } from "expo-linear-gradient";
-import React, { ComponentProps, useState } from "react";
+import React, { useState } from "react";
 import {
-  Dimensions,
   SafeAreaView,
   ScrollView,
   StyleSheet,
@@ -27,8 +26,6 @@ const COLORS = {
   TEXT_MEDIUM: "#475569",
   BORDER_LIGHT: "rgba(255, 255, 255, 0.5)",
 };
-
-type FeatherIconName = ComponentProps<typeof Feather>["name"];
 
 const ToggleButtonWithGradient = ({
   title,
@@ -222,10 +219,6 @@ const styles = StyleSheet.create({
 
 export function AppFinal() {
   const [isLogin, setIsLogin] = useState(true);
-
-  // Lấy chiều rộng màn hình để tính toán padding an toàn
-  const { width } = Dimensions.get("window");
-  const horizontalPadding = 20; // Padding của backgroundContainer
 
   return (
     <LinearGradient

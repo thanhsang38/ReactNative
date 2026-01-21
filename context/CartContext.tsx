@@ -123,7 +123,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
           JSON.stringify({
             items,
             selectedVoucher,
-          })
+          }),
         );
       } catch (e) {
         console.log("CART: Save error", e);
@@ -143,11 +143,11 @@ export function CartProvider({ children }: { children: ReactNode }) {
           cartItem.productId === item.productId &&
           cartItem.size === item.size &&
           cartItem.ice === item.ice &&
-          cartItem.sugar === item.sugar
+          cartItem.sugar === item.sugar,
       );
     } else {
       existingItemIndex = items.findIndex(
-        (cartItem) => cartItem.productId === item.productId
+        (cartItem) => cartItem.productId === item.productId,
       );
     }
 
@@ -179,7 +179,7 @@ export function CartProvider({ children }: { children: ReactNode }) {
       return;
     }
     setItems((prev) =>
-      prev.map((item) => (item.id === itemId ? { ...item, quantity } : item))
+      prev.map((item) => (item.id === itemId ? { ...item, quantity } : item)),
     );
   };
 

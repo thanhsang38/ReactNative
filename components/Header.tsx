@@ -1,24 +1,15 @@
-import React from "react";
-import {
-  View,
-  Text,
-  TouchableOpacity,
-  StyleSheet,
-  Platform,
-} from "react-native";
 import { Feather } from "@expo/vector-icons";
-import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useRouter } from "expo-router";
+import React from "react";
+import { StyleSheet, Text, TouchableOpacity, View } from "react-native";
+import { useSafeAreaInsets } from "react-native-safe-area-context";
 import { useCart } from "../context/CartContext";
-
-type Page = string;
 
 interface HeaderProps {
   title: string;
   showBack?: boolean;
   showCart?: boolean;
   onBack?: () => void;
-  // Loại bỏ navigateTo vì đã dùng useRouter.push/router.back()
 }
 
 const COLORS = {

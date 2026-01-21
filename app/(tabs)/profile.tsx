@@ -133,12 +133,6 @@ export function ProfilePage() {
     },
   ];
 
-  // useFocusEffect(
-  //   React.useCallback(() => {
-  //     refreshUser();
-  //   }, [])
-  // );
-
   const handleLogout = () => {
     Alert.alert(
       "Xác nhận Đăng xuất",
@@ -158,7 +152,7 @@ export function ProfilePage() {
             }
           },
         },
-      ]
+      ],
     );
   };
 

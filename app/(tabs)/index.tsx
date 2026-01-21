@@ -112,7 +112,7 @@ export function HomeRoute() {
     useCallback(() => {
       setIsLoading(true);
       fetchHomeData();
-    }, [fetchHomeData])
+    }, [fetchHomeData]),
   );
 
   const toggleFavorite = async (productId: number) => {
@@ -171,7 +171,7 @@ export function HomeRoute() {
   const popularProducts = allProducts.slice(0, 4);
   const handleAddToCart = (product: ProductRow) => {
     const isDrink = DRINK_CATEGORIES_NORMALIZED.includes(
-      product.category ?? ""
+      product.category ?? "",
     );
     const finalPrice =
       product.salePrice && Number(product.salePrice) > 0
@@ -318,7 +318,7 @@ export function HomeRoute() {
               const discountPercent = hasSale
                 ? Math.round(
                     (1 - Number(product.salePrice) / Number(product.price)) *
-                      100
+                      100,
                   )
                 : 0;
 
@@ -448,7 +448,6 @@ export function HomeRoute() {
 }
 
 export default HomeRoute;
-// ... (STYLESHEET)
 const styles = StyleSheet.create({
   fullContainer: { flex: 1, backgroundColor: "#f8fafc" },
   headerGradient: {
